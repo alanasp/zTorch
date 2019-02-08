@@ -51,7 +51,7 @@ class TimeSeries:
 
 class Simulation:
     # generates time series for each vnf
-    def __init__(self, init_profiles=None, steps=100, std=0.1):
+    def __init__(self, init_profiles=None, steps=1000, std=0.1):
         self.logger = logging.getLogger('Simulation{}'.format(std))
         self.logger.info('Initialising simulation...')
         if not init_profiles:
@@ -74,6 +74,11 @@ class Simulation:
 
         # centres evolution will contain evolution of centres of gravity after running k-means
         self.centres_evolution = list()
+
+        # Q-Learning table, to be filled during first run of simulation and then further updated
+        self.q_table = np.zeros((len(init_profiles)+1, 21))
+        # Number of times each Q-Table state was visited
+        self.num_visited = np.zeros(len(init_profiles)+1)
 
         self.logger.info('Simulation initialised!')
 
@@ -110,52 +115,96 @@ class Simulation:
 
     def run_sim(self, centres=None, surv_epoch=1):
         self.logger.info('Running simulation with surveillance epoch of {}t...'.format(surv_epoch))
-        if not centres:
+        if centres is None:
             centres = np.array([[75, 75, 75], [25, 25, 25]])
+
         ts_entry = self.time_series.first
-        old_aff_groups = None
-        no_deviation = False
+
+        steps, centres, old_aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
+
+        num_deviations = list()
+        surv_epoch_lengths = list()
+
         num_aff_groups = list()
+
         while ts_entry:
             num_aff_groups.append(len(centres))
             if ts_entry.time % surv_epoch == 0:
-                q_table = self.gen_q_table
+
                 steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
-            if old_aff_groups and np.any(np.not_equal(old_aff_groups, aff_groups)):
-                if len(centres) > 2:
-                    centres = centres[:-1]
-                    self.logger.info('Decreasing affinity groups to {}'.
-                                     format(len(centres)))
+                num_deviations.append(np.sum(np.not_equal(old_aff_groups, aff_groups)))
+                surv_epoch_lengths.append(surv_epoch)
+
+                if ts_entry.time >= 1:
+                    # action taken is the difference between epoch lengths
+                    action_taken = surv_epoch_lengths[-1] - surv_epoch_lengths[-2]
+                    # we were in a state 'num_deviations[-2]', took action and ended up in 'num_deviations[-1]'
+                    self.update_q_table(num_deviations[-2], action_taken, num_deviations[-1], surv_epoch_lengths[-1])
+
+                action = self.get_action(num_deviations[-1])
+                surv_epoch += action - 10
+                surv_epoch = max(surv_epoch, 1)
+                self.logger.info('Time: {} Action: {} Surv epoch: {}'.format(ts_entry.time, action-10, surv_epoch))
+
+                if num_deviations[-1] > 0:
+
+                    # 2 affinity groups is the lower bound
+                    if len(centres) > 2:
+                        centres = centres[:-1]
+                        self.logger.info('Decreasing affinity groups to {}'.format(len(centres)))
+
+                        # rerun ekm with new centres
+                        steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
+
+                    # reset deviation flag
+                    no_deviation = False
+
+                # no deviation occured for 2 consecutive epochs
+                elif ts_entry.time >= 2 and num_deviations[-1] == 0 and num_deviations[-2] == 0:
+                    # pick a random vnf profile to act as a new centre
+                    cid = np.random.randint(len(ts_entry.entry))
+                    centres = np.append(centres, [ts_entry.entry[cid]], axis=0)
+                    self.logger.info('Increasing affinity groups to {} with a new center at {}'.
+                                     format(len(centres), centres[-1]))
 
                     # rerun ekm with new centres
                     steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
 
-                # reset deviation flag
-                no_deviation = False
+                    # reset deviation flag
+                    no_deviation = False
 
-            # no deviation occured for 2 consecutive epochs
-            elif no_deviation:
-                # pick a random vnf profile to act as a new centre
-                cid = np.random.randint(len(ts_entry.entry))
-                centres = np.append(centres, [ts_entry.entry[cid]], axis=0)
-                self.logger.info('Increasing affinity groups to {} with a new center at {}'.
-                                 format(len(centres), centres[-1]))
-
-                # rerun ekm with new centres
-                steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
-
-                # reset deviation flag
-                no_deviation = False
-
-            # no deviation occured in this epoch
-            else:
-                no_deviation = True
-            old_aff_groups = aff_groups
+                old_aff_groups = aff_groups
             ts_entry = ts_entry.next
         self.logger.info('Simulation finished!')
         self.logger.info('FINAL STATS Number of affinity groups: {}'.format(len(centres)))
         return np.array(num_aff_groups)
 
+    def get_action(self, state, random_prob=0.5):
+        is_random = (np.random.uniform(0.0, 1.0) < random_prob)
+        # return random action (for exploration purposes)
+        if is_random:
+            return np.random.randint(0, 21)
+        # otherwise return the best action
+        best_action = 0
+        for action in range(len(self.q_table[state])):
+            if self.q_table[state, action] > self.q_table[state, best_action]:
+                best_action = action
+        return best_action
+
+    def get_reward(self, num_deviations, surv_epoch_length, beta=0.5):
+        # ensure reward function is able to deal with 0 deviations
+        if num_deviations == 0:
+            num_deviations = 0.5
+        return surv_epoch_length/(num_deviations**beta)
+
+    def update_q_table(self, state, action, next_state, surv_epoch_length, learning_rate=0.5, discount_rate=0.9):
+        q_max = 0
+        # loop through the actions in next state to find max reward
+        for reward in self.q_table[next_state]:
+            q_max = max(q_max, reward)
+
+        self.q_table[state, action] = (1-learning_rate)*self.q_table[state, action] + \
+            learning_rate*(self.get_reward(state, surv_epoch_length) + discount_rate*q_max)
 
     def calc_centres(self, points, point_group, num_centres):
         counts = [0]*num_centres
@@ -192,7 +241,7 @@ def gen_init_profiles(base_profiles, count_per_base):
     for key in base_profiles:
         base = base_profiles[key]
         for i in range(count_per_base):
-            profile = (np.random.pareto(1.16, size=len(base)) + 1) * np.array(base)
+            profile = (np.random.pareto(1.16, size=len(base)) + 1) + np.array(base)
             profiles.append(profile)
     profiles = np.array(cap_profiles(profiles))
     return profiles

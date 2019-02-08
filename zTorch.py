@@ -43,8 +43,11 @@ k_means_granularity = 0.001
 sim008 = data_gen.Simulation(std=0.08)
 sim010 = data_gen.Simulation(std=0.1)
 sim012 = data_gen.Simulation(std=0.12)
+sims = [sim010]
 #steps, centres, aff_groups, points = sim.run_ekm()
-num_aff_groups = [sim008.run_sim(), sim010.run_sim(), sim012.run_sim()]
+num_aff_groups = []
+for sim in sims:
+    num_aff_groups.append(sim.run_sim())
 
 #vnf_groups = data_gen.group_points(points, aff_groups)
 
@@ -69,7 +72,6 @@ if plot_ekm_results:
     plt.show()
 
 if plot_sim_results:
-    plt.plot(num_aff_groups[0])
-    plt.plot(num_aff_groups[1])
-    plt.plot(num_aff_groups[2])
+    for aff in num_aff_groups:
+        plt.plot(aff)
     plt.show()
