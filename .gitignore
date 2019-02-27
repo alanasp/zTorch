@@ -1,0 +1,9 @@
+# ignore PyCharm files
+.idea/
+__*/
+
+# ignore log files
+*.log
+
+# ignore data directories
+data_*/
