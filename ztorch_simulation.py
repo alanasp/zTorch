@@ -43,11 +43,22 @@ class TSEntry:
 
 
 class TimeSeries:
-    def __init__(self, init_entry):
-        self.first = TSEntry(init_entry, 0)
-        self.last = self.first
+    # if file_prefix provided, loads data from file file_prefixT upon request for time series at time T
+    def __init__(self, init_entry, file_prefix=None, max_time=1000):
+        self.file_prefix = file_prefix
+        if file_prefix is not None:
+            self.current = TSEntry(init_entry, 0)
+            self.max_time = max_time
+            # first/last references not supported when loading from file
+            self.first = None
+            self.last = None
+        else:
+            self.current = TSEntry(init_entry, 0)
+            self.first = self.current
+            self.last = self.first
         self.shape = init_entry.shape
         self.time_elapsed = 0
+
 
     def add_entry_delta(self, delta):
         new_entry = TSEntry(cap_profiles(self.last.entry+delta), self.time_elapsed+1)
@@ -59,9 +70,35 @@ class TimeSeries:
 
     def add_entry(self, entry):
         self.last.next = entry
-
         self.last = entry
         self.time_elapsed += 1
+
+    def load_entry(self, delta=None, time=None):
+        if delta is not None:
+            # could cache next delta file here
+            time = self.time_elapsed + delta
+        if time is None:
+            raise Exception('Specify time or delta!')
+        if time > self.max_time:
+            self.current = None
+        else:
+            with open(self.file_prefix + str(time), 'rb') as data_file:
+                ts_entry = TSEntry(np.reshape(np.fromstring(data_file.read()), (-1, 3)), time)
+                self.current = ts_entry
+                self.time_elapsed = time
+                self.shape = ts_entry.entry.shape
+
+    def get_next(self, delta=1):
+        if self.file_prefix is None:
+            count = 0
+            while count < delta:
+                self.current = self.current.next
+            return self.current
+        else:
+            self.load_entry(delta=delta)
+            return self.current
+
+
 
 
 class Simulation:
@@ -74,6 +111,10 @@ class Simulation:
         self.logger = custom_logger.get_logger('Simulation_{}_{}'.format(int(std*100), num_init_profiles))
         self.logger.info('Initialising simulation...')
 
+        self.std = std
+        self.num_profiles = num_init_profiles
+        self.total_steps = steps
+
         # read time series data from file
         if input_files_prefix:
 
@@ -82,20 +123,13 @@ class Simulation:
             if input_files_prefix is True:
                 input_files_prefix = 'data_{}_{}/ztorch_out'.format(int(std*100), num_init_profiles)
 
+            # read init profiles into memory, next items will be read during simulation execution
             with open(input_files_prefix + '0', 'rb') as data_file:
                 num_vnf_profiles = int(data_file.readline().decode('UTF-8').split(' ')[1])
                 num_time_steps = int(data_file.readline().decode('UTF-8').split(' ')[1])
 
-                # skip lines
-                data_file.readline()
-                data_file.readline()
-                init_profiles = np.fromstring(data_file.read(), dtype='>f4')
-                self.time_series = TimeSeries(init_profiles)
-
-            for step in range(1, num_time_steps+1):
-                with open(input_files_prefix + str(step), 'rb') as data_file:
-                    ts_entry = TSEntry(np.array(data_file.read()), step)
-                    self.time_series.add_entry(ts_entry)
+                init_profiles = np.reshape(np.fromstring(data_file.read()), (-1, 3))
+                self.time_series = TimeSeries(init_profiles, file_prefix=input_files_prefix)
 
         else:
 
@@ -117,7 +151,6 @@ class Simulation:
                 with open(output_files_prefix + '0', 'wb') as data_file:
                     data_file.write(bytes('num_vnf_profiles {}\n'.format(len(init_profiles)), encoding='UTF-8'))
                     data_file.write(bytes('num_time_steps {}\n'.format(steps), encoding='UTF-8'))
-                    data_file.write(bytes('\ntime_step {}\n'.format(0), encoding='UTF-8'))
                     data_file.write(self.time_series.first.entry.tostring())
 
             for step in range(1, steps+1):
@@ -127,7 +160,6 @@ class Simulation:
                 self.time_series.add_entry_delta(delta)
                 if output_files_prefix:
                     with open(output_files_prefix + str(step), 'wb') as data_file:
-                        data_file.write(bytes('\ntime_step {}\n'.format(step), encoding='UTF-8'))
                         data_file.write(self.time_series.last.entry.tostring())
 
         self.logger.info('Time series initialized!')
@@ -162,7 +194,7 @@ class Simulation:
         aff_groups = [-1]*len(points)
         converged = False
         while not converged:
-            granularity = max(1e-10, 100*steps**(np.sqrt(len(points)))/2.0**(len(points)))
+            granularity = max(1e-100, 100*steps**(np.sqrt(len(points)))/2.0**(len(points)))
             for i in range(len(points)):
                 min_dist = 1e10
                 for j in range(len(centres)):
@@ -191,7 +223,7 @@ class Simulation:
         if centres is None:
             centres = np.array([[75, 75, 75], [25, 25, 25]])
 
-        ts_entry = self.time_series.first
+        ts_entry = self.time_series.current
 
         steps, centres, old_aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
 
@@ -247,7 +279,7 @@ class Simulation:
                     steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
 
                 old_aff_groups = aff_groups
-            ts_entry = ts_entry.next
+            ts_entry = self.time_series.get_next()
         self.logger.info('Simulation finished!')
         self.logger.info('FINAL STATS Number of affinity groups: {}'.format(len(centres)))
         return np.array(num_aff_groups)
