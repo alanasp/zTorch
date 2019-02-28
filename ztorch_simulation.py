@@ -174,7 +174,7 @@ class Simulation:
         self.centres_evolution = list()
 
         # Q-Learning table, to be filled during first run of simulation and then further updated
-        self.q_table = np.zeros((len(init_profiles)+1, 21))
+        self.q_table = np.zeros((len(init_profiles)+1, 11))
         # Number of times each Q-Table state was visited
         self.num_visited = np.zeros(len(init_profiles)+1)
 
@@ -183,6 +183,7 @@ class Simulation:
 
         self.logger.info('Simulation initialised!')
 
+    # runs enhanced k-means clustering algorithm
     def run_ekm(self, init_centres=None, points=None):
         if init_centres is None:
             init_centres = self.default_centres
@@ -194,7 +195,8 @@ class Simulation:
         aff_groups = [-1]*len(points)
         converged = False
         while not converged:
-            granularity = max(1e-100, 100*steps**(np.sqrt(len(points)))/2.0**(len(points)))
+            power = min(len(points), 1000)
+            granularity = max(1e-100, 100*steps**(np.sqrt(power))/2.0**power)
             for i in range(len(points)):
                 min_dist = 1e10
                 for j in range(len(centres)):
@@ -279,7 +281,7 @@ class Simulation:
                     steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
 
                 old_aff_groups = aff_groups
-            ts_entry = self.time_series.get_next()
+            ts_entry = self.time_series.get_next(delta=mon_period)
         self.logger.info('Simulation finished!')
         self.logger.info('FINAL STATS Number of affinity groups: {}'.format(len(centres)))
         return np.array(num_aff_groups)
@@ -288,7 +290,7 @@ class Simulation:
         is_random = (np.random.uniform(0.0, 1.0) < random_prob)
         # return random action (for exploration purposes)
         if is_random:
-            return np.random.randint(0, 21)
+            return np.random.randint(0, self.q_table.shape[1])
         # otherwise return the best action
         best_action = 0
         for action in range(len(self.q_table[state])):
