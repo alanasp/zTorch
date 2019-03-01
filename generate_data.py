@@ -1,5 +1,5 @@
 import sys
-import multiprocessing  as multiproc
+import multiprocessing as multiproc
 import custom_logger
 import datetime
 
@@ -13,7 +13,7 @@ if __name__ == '__main__':
     logger = custom_logger.get_logger('Data_Generation')
     logger.info('Starting data generation...')
 
-    num_time_steps = 1000
+    num_time_steps = 50000
     if len(sys.argv) > 1:
         num_time_steps = int(sys.argv[1])
 

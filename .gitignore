@@ -7,3 +7,6 @@ __*/
 
 # ignore data directories
 data_*/
+
+# ignore results directory
+results/

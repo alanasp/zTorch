@@ -2,6 +2,8 @@ import numpy as np
 import custom_logger
 import pathlib
 
+from timeseries import TimeSeries, TSEntry
+import utils
 
 base_vnf_profiles = {
      'low':  {'MME':  [17.7, 15.9, 5.8],
@@ -27,87 +29,14 @@ default_params = {
 }
 
 
-class VNF_Profile:
-    def __init__(self, measures, aff_group=-1):
-        self.measures = measures
-        self.aff_group = aff_group
-
-
-class TSEntry:
-    def __init__(self, entry, time):
-        # entry should be np.array
-        self.entry = entry
-        self.time = time
-        self.next = None
-        self.prev = None
-
-
-class TimeSeries:
-    # if file_prefix provided, loads data from file file_prefixT upon request for time series at time T
-    def __init__(self, init_entry, file_prefix=None, max_time=1000):
-        self.file_prefix = file_prefix
-        if file_prefix is not None:
-            self.current = TSEntry(init_entry, 0)
-            self.max_time = max_time
-            # first/last references not supported when loading from file
-            self.first = None
-            self.last = None
-        else:
-            self.current = TSEntry(init_entry, 0)
-            self.first = self.current
-            self.last = self.first
-        self.shape = init_entry.shape
-        self.time_elapsed = 0
-
-
-    def add_entry_delta(self, delta):
-        new_entry = TSEntry(cap_profiles(self.last.entry+delta), self.time_elapsed+1)
-        new_entry.prev = self.last
-        self.last.next = new_entry
-
-        self.last = new_entry
-        self.time_elapsed += 1
-
-    def add_entry(self, entry):
-        self.last.next = entry
-        self.last = entry
-        self.time_elapsed += 1
-
-    def load_entry(self, delta=None, time=None):
-        if delta is not None:
-            # could cache next delta file here
-            time = self.time_elapsed + delta
-        if time is None:
-            raise Exception('Specify time or delta!')
-        if time > self.max_time:
-            self.current = None
-        else:
-            with open(self.file_prefix + str(time), 'rb') as data_file:
-                ts_entry = TSEntry(np.reshape(np.fromstring(data_file.read()), (-1, 3)), time)
-                self.current = ts_entry
-                self.time_elapsed = time
-                self.shape = ts_entry.entry.shape
-
-    def get_next(self, delta=1):
-        if self.file_prefix is None:
-            count = 0
-            while count < delta:
-                self.current = self.current.next
-            return self.current
-        else:
-            self.load_entry(delta=delta)
-            return self.current
-
-
-
-
 class Simulation:
     # Generates time series for each vnf
     # If output_file is True, writes time series to the default file (can specify custom file base name)
     # If input_file is True, reads time series from the default file (can specify custom file base name)
     # The custom specified name will be appended with _data for time series data, so specifying file name XYZ
     #   means that the function will expect a file XYZ_data
-    def __init__(self, std=0.1, num_init_profiles=1000, steps=1000, output_files_prefix=None, input_files_prefix=None):
+    def __init__(self, std=0.1, num_init_profiles=1000, steps=1000, output_file=None, input_file=None,
+                 results_dir=True):
         self.logger = custom_logger.get_logger('Simulation_{}_{}'.format(int(std*100), num_init_profiles))
         self.logger.info('Initialising simulation...')
 
@@ -115,40 +44,47 @@ class Simulation:
         self.num_profiles = num_init_profiles
         self.total_steps = steps
 
+        if results_dir is True:
+            # create results directory
+            results_dir = 'results/'
+            pathlib.Path(results_dir).mkdir(parents=True, exist_ok=True)
+        self.results_dir = results_dir
+
         # read time series data from file
-        if input_files_prefix:
+        if input_file:
 
             self.logger.info('Reading time series from files...')
 
-            if input_files_prefix is True:
-                input_files_prefix = 'data_{}_{}/ztorch_out'.format(int(std*100), num_init_profiles)
+            if input_file is True:
+                input_file = 'data_{}_{}/ztorch_out'.format(int(std*100), num_init_profiles)
 
             # read init profiles into memory, next items will be read during simulation execution
-            with open(input_files_prefix + '0', 'rb') as data_file:
+            with open(input_file + '0', 'rb') as data_file:
                 num_vnf_profiles = int(data_file.readline().decode('UTF-8').split(' ')[1])
                 num_time_steps = int(data_file.readline().decode('UTF-8').split(' ')[1])
+                self.total_steps = num_time_steps
 
                 init_profiles = np.reshape(np.fromstring(data_file.read()), (-1, 3))
-                self.time_series = TimeSeries(init_profiles, file_prefix=input_files_prefix)
+                self.time_series = TimeSeries(init_profiles, file_prefix=input_file, max_time=num_time_steps)
 
         else:
 
             self.logger.info('Generating time series...')
 
-            init_profiles = gen_init_profiles(base_vnf_profiles['high'],
+            init_profiles = utils.gen_init_profiles(base_vnf_profiles['high'],
                                               num_init_profiles//len(base_vnf_profiles['high']))
 
-            if output_files_prefix is True:
-                output_files_prefix = 'data_{}_{}'.format(int(std*100), len(init_profiles))
-                pathlib.Path(output_files_prefix).mkdir(parents=True, exist_ok=True)
-                output_files_prefix += '/ztorch_out'
+            if output_file is True:
+                output_file = 'data_{}_{}'.format(int(std*100), len(init_profiles))
+                pathlib.Path(output_file).mkdir(parents=True, exist_ok=True)
+                output_file += '/ztorch_out'
 
             # timeseries of each vnf compute needs
             self.time_series = TimeSeries(init_profiles)
 
             data_file = None
-            if output_files_prefix:
-                with open(output_files_prefix + '0', 'wb') as data_file:
+            if output_file:
+                with open(output_file + '0', 'wb') as data_file:
                     data_file.write(bytes('num_vnf_profiles {}\n'.format(len(init_profiles)), encoding='UTF-8'))
                     data_file.write(bytes('num_time_steps {}\n'.format(steps), encoding='UTF-8'))
                     data_file.write(self.time_series.first.entry.tostring())
@@ -158,8 +94,8 @@ class Simulation:
                     self.logger.info('Generating {}th step of time series...'.format(step))
                 delta = np.random.normal(0, std, self.time_series.shape)
                 self.time_series.add_entry_delta(delta)
-                if output_files_prefix:
-                    with open(output_files_prefix + str(step), 'wb') as data_file:
+                if output_file:
+                    with open(output_file + str(step), 'wb') as data_file:
                         data_file.write(self.time_series.last.entry.tostring())
 
         self.logger.info('Time series initialized!')
@@ -174,7 +110,7 @@ class Simulation:
         self.centres_evolution = list()
 
         # Q-Learning table, to be filled during first run of simulation and then further updated
-        self.q_table = np.zeros((len(init_profiles)+1, 11))
+        self.q_table = np.zeros((len(init_profiles)+1, 5))
         # Number of times each Q-Table state was visited
         self.num_visited = np.zeros(len(init_profiles)+1)
 
@@ -219,8 +155,7 @@ class Simulation:
     def run_sim(self, centres=None, params=default_params):
         surv_epoch = params['surv_epoch']
         mon_periods = params['mon_periods']
-        mon_period_id = params['default_mon_period_id']
-        mon_period = mon_periods[mon_period_id]
+        mon_id = params['default_mon_period_id']
         self.logger.info('Running simulation with surveillance epoch of {}t...'.format(surv_epoch))
         if centres is None:
             centres = np.array([[75, 75, 75], [25, 25, 25]])
@@ -229,35 +164,57 @@ class Simulation:
 
         steps, centres, old_aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
 
+        aff_groups = old_aff_groups
+
         num_deviations = list()
+        alerts = [False]
         surv_epoch_lengths = list()
 
         num_aff_groups = list()
 
         while ts_entry:
-            num_aff_groups.append(len(centres))
+
+            if ts_entry.time % 50 == 0:
+                num_aff_groups.append(len(centres))
 
             # conduct monitoring
-            if ts_entry.time % mon_period == 0:
-                pass
+            if ts_entry.time % mon_periods[mon_id] == 0:
+                if utils.count_deviations(points, old_aff_groups, centres) > 0:
+                    alerts[-1] = True
 
             # end of surveillance epoch
             if ts_entry.time % surv_epoch == 0:
+                #print(centres)
+                #print(points[0], points[200], points[400], points[600])
+                #print(aff_groups[0], aff_groups[200], aff_groups[400], aff_groups[600])
+                reprofile = False
 
-                steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
-                num_deviations.append(np.sum(np.not_equal(old_aff_groups, aff_groups)))
+                if alerts[-1] and (len(alerts) < 2 or not alerts[-2]):
+                    mon_id = min(len(mon_periods)-1, mon_id+1)
+                elif alerts[-1] and alerts[-2]:
+                    # reset monitoring frequency
+                    mon_id = params['default_mon_period_id']
+                    reprofile = True
+                elif not alerts[-1]:
+                    mon_id = max(0, mon_id-1)
+
+                alerts.append(False)
                 surv_epoch_lengths.append(surv_epoch)
+                num_deviations.append(utils.count_deviations(points, aff_groups, centres))
+
+                if reprofile:
+                    steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
 
                 if ts_entry.time >= 1:
-                    # action taken is the difference between epoch lengths
-                    action_taken = surv_epoch_lengths[-1] - surv_epoch_lengths[-2]
+                    # action taken is the difference between epoch lengths adjusted to non-negative range
+                    action_taken = self.q_table.shape[1]//2 + (surv_epoch_lengths[-1] - surv_epoch_lengths[-2])//50
                     # we were in a state 'num_deviations[-2]', took action and ended up in 'num_deviations[-1]'
                     self.update_q_table(num_deviations[-2], action_taken, num_deviations[-1], surv_epoch_lengths[-1])
 
                 action = self.get_action(num_deviations[-1])
-                surv_epoch += action - 10
-                surv_epoch = max(surv_epoch, 1)
-                self.logger.info('Time: {} Action: {} Surv epoch: {}'.format(ts_entry.time, action-10, surv_epoch))
+                surv_epoch += 50*(action - self.q_table.shape[1]//2)
+                surv_epoch = max(surv_epoch, 50)
+                self.logger.info('Time: {} Action: {} Surv epoch: {}'.format(ts_entry.time, action, surv_epoch))
 
                 if num_deviations[-1] > 0:
 
@@ -281,7 +238,20 @@ class Simulation:
                     steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
 
                 old_aff_groups = aff_groups
-            ts_entry = self.time_series.get_next(delta=mon_period)
+            ts_entry = self.time_series.get_next(delta=mon_periods[mon_id])
+
+        if self.results_dir:
+            file_name = self.results_dir + 'num_aff_groups_{}_{}'.format(self.std, self.num_profiles)
+            with open(file_name, 'w') as data_file:
+                data_file.write(str(len(num_aff_groups)) + '\n')
+                data_file.write(' '.join(map(str, num_aff_groups)))
+
+            file_name = self.results_dir + 'surv_epoch_lengths{}_{}'.format(self.std, self.num_profiles)
+            with open(file_name, 'w') as data_file:
+                data_file.write(str(len(surv_epoch_lengths)) + '\n')
+                data_file.write(' '.join(map(str, surv_epoch_lengths)))
+
+
         self.logger.info('Simulation finished!')
         self.logger.info('FINAL STATS Number of affinity groups: {}'.format(len(centres)))
         return np.array(num_aff_groups)
@@ -334,34 +304,3 @@ class Simulation:
                 gp.append(min(100.0, np.round(coord/grid_step)*grid_step))
             grid_points.append(gp)
         return np.array(grid_points)
-
-
-def cap_profiles(profiles):
-    for prof in profiles:
-        for i in range(len(prof)):
-            prof[i] = min(prof[i], 100)
-    return profiles
-
-
-def gen_init_profiles(base_profiles, count_per_base):
-    profiles = list()
-    for key in base_profiles:
-        base = base_profiles[key]
-        for i in range(count_per_base):
-            profile = np.random.pareto(1.16, size=len(base)) + np.array(base)
-            profiles.append(profile)
-    profiles = np.array(cap_profiles(profiles))
-    return profiles
-
-
-def group_points(points, group_ids):
-    groups = dict()
-    for i in range(len(points)):
-        gid = group_ids[i]
-        if gid not in groups:
-            groups[gid] = list()
-        groups[gid].append(points[i])
-    for gid in groups:
-        groups[gid] = np.array(groups[gid])
-    return groups
-
