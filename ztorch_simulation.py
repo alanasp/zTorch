@@ -180,6 +180,8 @@ class Simulation:
 
         while ts_entry:
 
+            points = ts_entry.entry
+
             if ts_entry.time % 50 == 0:
                 num_aff_groups.append(len(centres))
 
@@ -220,7 +222,8 @@ class Simulation:
                 action = self.get_action(num_deviations[-1])
                 surv_epoch += 50*(action - self.q_table.shape[1]//2)
                 surv_epoch = max(surv_epoch, 50)
-                self.logger.info('Time: {} Action: {} Surv epoch: {}'.format(ts_entry.time, action, surv_epoch))
+                self.logger.info('Time: {} Surv epoch: {} Num deviations: {} Action: {} '.
+                                 format(ts_entry.time, surv_epoch, num_deviations[-1], action))
 
                 if num_deviations[-1] > 0:
 

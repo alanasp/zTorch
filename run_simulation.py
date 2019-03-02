@@ -18,7 +18,7 @@ if __name__ == '__main__':
         num_time_steps = int(sys.argv[1])
 
     # (std, num_vnf_profiles, num_time_steps, output_file_prefix, input_file_prefix)
-    params = [(0.12, 1000, num_time_steps, None, True), (0.1, 1000, num_time_steps, None, True), (0.1, 1250, num_time_steps, None, True),
+    params = [(0.10, 750, num_time_steps, None, True), (0.10, 1000, num_time_steps, None, True), (0.10, 1250, num_time_steps, None, True),
               (0.06, 1000, num_time_steps, None, True), (0.08, 1000, num_time_steps, None, True), (0.12, 1000, num_time_steps, None, True)]
 
     procs = []
