@@ -13,9 +13,11 @@ class TSEntry:
 class TimeSeries:
     # if file_prefix provided, loads data from file file_prefixT upon request for time series at time T
     # max_time only needed with file_prefix
-    def __init__(self, init_entry, file_prefix=None, max_time=1000):
+    def __init__(self, init_entry, file_prefix=None, max_time=None):
         self.file_prefix = file_prefix
         if file_prefix is not None:
+            if max_time is None:
+                raise Exception('Maximum time for time series not specified!')
             self.current = TSEntry(init_entry, 0)
             self.max_time = max_time
             # first/last references not supported when loading from file

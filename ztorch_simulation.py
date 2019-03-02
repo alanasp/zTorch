@@ -35,13 +35,14 @@ class Simulation:
     # If input_file is True, reads time series from the default file (can specify custom file base name)
     # The custom specified name will be appended with _data for time series data, so specifying file name XYZ
     #   means that the function will expect a file XYZ_data
-    def __init__(self, std=0.1, num_init_profiles=1000, steps=1000, output_file=None, input_file=None,
+    def __init__(self, std=0.1, num_init_profiles=1000, steps=None, output_file=None, input_file=None,
                  results_dir=True):
         self.logger = custom_logger.get_logger('Simulation_{}_{}'.format(int(std*100), num_init_profiles))
         self.logger.info('Initialising simulation...')
 
         self.std = std
         self.num_profiles = num_init_profiles
+
         self.total_steps = steps
 
         if results_dir is True:
@@ -62,7 +63,10 @@ class Simulation:
             with open(input_file + '0', 'rb') as data_file:
                 num_vnf_profiles = int(data_file.readline().decode('UTF-8').split(' ')[1])
                 num_time_steps = int(data_file.readline().decode('UTF-8').split(' ')[1])
-                self.total_steps = num_time_steps
+                if self.total_steps is None:
+                    self.total_steps = num_time_steps
+                else:
+                    self.total_steps = min(self.total_steps, num_time_steps)
 
                 init_profiles = np.reshape(np.fromstring(data_file.read()), (-1, 3))
                 self.time_series = TimeSeries(init_profiles, file_prefix=input_file, max_time=num_time_steps)

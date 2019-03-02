@@ -13,7 +13,7 @@ if __name__ == '__main__':
     logger = custom_logger.get_logger('Run_Simulations')
     logger.info('Starting simulations...')
 
-    num_time_steps = 50000
+    num_time_steps = None
     if len(sys.argv) > 1:
         num_time_steps = int(sys.argv[1])
 
