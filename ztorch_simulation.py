@@ -79,24 +79,26 @@ class Simulation:
                 pathlib.Path(output_file).mkdir(parents=True, exist_ok=True)
                 output_file += '/ztorch_out'
 
-            # timeseries of each vnf compute needs
-            self.time_series = TimeSeries(init_profiles)
-
             data_file = None
             if output_file:
                 with open(output_file + '0', 'wb') as data_file:
                     data_file.write(bytes('num_vnf_profiles {}\n'.format(len(init_profiles)), encoding='UTF-8'))
                     data_file.write(bytes('num_time_steps {}\n'.format(steps), encoding='UTF-8'))
-                    data_file.write(self.time_series.first.entry.tostring())
+                    data_file.write(init_profiles.tostring())
 
-            for step in range(1, steps+1):
+            # time series of each vnf compute needs
+            if output_file:
+                self.time_series = TimeSeries(init_profiles, file_prefix=output_file, max_time=self.total_steps)
+            else:
+                self.time_series = TimeSeries(init_profiles)
+
+            for step in range(1, self.total_steps+1):
                 if step % 1000 == 0:
                     self.logger.info('Generating {}th step of time series...'.format(step))
                 delta = np.random.normal(0, std, self.time_series.shape)
                 self.time_series.add_entry_delta(delta)
-                if output_file:
-                    with open(output_file + str(step), 'wb') as data_file:
-                        data_file.write(self.time_series.last.entry.tostring())
+
+            self.time_series.load_entry(time=0)
 
         self.logger.info('Time series initialized!')
 
