@@ -100,7 +100,8 @@ class Simulation:
                 if step % 1000 == 0:
                     self.logger.info('Generating {}th step of time series...'.format(step))
                 delta = np.random.normal(0, std, self.time_series.shape)
-                self.time_series.add_entry_delta(delta)
+                new_entry = TSEntry(init_profiles+delta, step)
+                self.time_series.add_entry(new_entry)
 
             self.time_series.load_entry(time=0)
 
@@ -117,6 +118,10 @@ class Simulation:
 
         # Q-Learning table, to be filled during first run of simulation and then further updated
         self.q_table = np.zeros((len(init_profiles)+1, 5))
+        #for i in range(self.q_table.shape[0]):
+        #    for j in range(self.q_table[0].shape[1]):
+
+
         # Number of times each Q-Table state was visited
         self.num_visited = np.zeros(len(init_profiles)+1)
 
