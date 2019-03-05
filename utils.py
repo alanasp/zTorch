@@ -32,14 +32,14 @@ def group_points(points, group_ids):
     return groups
 
 
-def count_deviations(points, aff_groups, centres):
+def count_deviations(points, aff_groups, centres, granularity):
     count = 0
     for pid in range(len(points)):
-        min_dist = 1e10
-        group = 0
+        min_dist = np.linalg.norm(points[pid] - centres[aff_groups[pid]])
+        group = aff_groups[pid]
         for cid in range(len(centres)):
             dist = np.linalg.norm(points[pid] - centres[cid])
-            if dist < min_dist:
+            if min_dist - dist > np.sqrt(points.shape[1])*granularity:
                 min_dist = dist
                 group = cid
         if group != aff_groups[pid]:

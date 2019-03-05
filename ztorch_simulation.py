@@ -136,9 +136,10 @@ class Simulation:
         steps = 0
         aff_groups = [-1]*len(points)
         converged = False
+        granularity = 1e-100
         while not converged:
             power = min(len(points), 1000)
-            granularity = max(1e-100, 100*steps**(np.sqrt(power))/2.0**power)
+            granularity = max(granularity, 100*steps**(np.sqrt(power))/2.0**power)
             for i in range(len(points)):
                 min_dist = 1e10
                 for j in range(len(centres)):
@@ -156,7 +157,7 @@ class Simulation:
             centres = new_centres
             steps += 1
         self.logger.info('ekm converged in {} steps'.format(steps))
-        return steps, centres, aff_groups, points
+        return steps, centres, aff_groups, points, granularity
 
     def run_sim(self, centres=None, params=default_params):
         surv_epoch = params['surv_epoch']
@@ -168,52 +169,57 @@ class Simulation:
 
         ts_entry = self.time_series.current
 
-        steps, centres, old_aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
+        steps, centres, aff_groups, points, granularity = self.run_ekm(init_centres=centres, points=ts_entry.entry)
 
-        aff_groups = old_aff_groups
+        last_aff_adjustment = 0
+        old_aff_groups = aff_groups
+        old_centres = centres
 
         num_deviations = list()
         alerts = [False]
-        surv_epoch_lengths = list()
 
         num_aff_groups = list()
+        mon_indices = list()
+        surv_epoch_lengths = list()
+
+        last_surv_time = 0
 
         while ts_entry:
 
+            prev_points = points
             points = ts_entry.entry
 
             if ts_entry.time % 50 == 0:
                 num_aff_groups.append(len(centres))
+                mon_indices.append(mon_id)
+                surv_epoch_lengths.append(surv_epoch)
 
             # conduct monitoring
             if ts_entry.time % mon_periods[mon_id] == 0:
-                if utils.count_deviations(points, old_aff_groups, centres) > 0:
+                if utils.count_deviations(points, aff_groups, centres, granularity) > 0:
                     alerts[-1] = True
 
             # end of surveillance epoch
-            if ts_entry.time % surv_epoch == 0:
-                #print(centres)
-                #print(points[0], points[200], points[400], points[600])
-                #print(aff_groups[0], aff_groups[200], aff_groups[400], aff_groups[600])
+            if ts_entry.time - last_surv_time >= surv_epoch:
+
                 reprofile = False
 
+                # check alerts and ask for reprofiling if there were deviations in 2 consecutive periods
                 if alerts[-1] and (len(alerts) < 2 or not alerts[-2]):
-                    mon_id = min(len(mon_periods)-1, mon_id+1)
+                    mon_id = max(0, mon_id-1)
                 elif alerts[-1] and alerts[-2]:
                     # reset monitoring frequency
                     mon_id = params['default_mon_period_id']
                     reprofile = True
                 elif not alerts[-1]:
-                    mon_id = max(0, mon_id-1)
+                    mon_id = min(len(mon_periods)-1, mon_id+1)
 
                 alerts.append(False)
-                surv_epoch_lengths.append(surv_epoch)
-                num_deviations.append(utils.count_deviations(points, aff_groups, centres))
 
-                if reprofile:
-                    steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
+                devs = utils.count_deviations(points, aff_groups, centres, granularity)
+                num_deviations.append(devs)
 
-                if ts_entry.time >= 1:
+                if len(num_deviations) >= 2:
                     # action taken is the difference between epoch lengths adjusted to non-negative range
                     action_taken = self.q_table.shape[1]//2 + (surv_epoch_lengths[-1] - surv_epoch_lengths[-2])//50
                     # we were in a state 'num_deviations[-2]', took action and ended up in 'num_deviations[-1]'
@@ -222,21 +228,21 @@ class Simulation:
                 action = self.get_action(num_deviations[-1])
                 surv_epoch += 50*(action - self.q_table.shape[1]//2)
                 surv_epoch = max(surv_epoch, 50)
-                self.logger.info('Time: {} Surv epoch: {} Num deviations: {} Action: {} '.
-                                 format(ts_entry.time, surv_epoch, num_deviations[-1], action))
+                self.logger.info('Time: {} Surv epoch: {} Mon_id: {} Num deviations: {} Aff groups: {} Action: {} '.
+                                 format(ts_entry.time, surv_epoch, mon_id, num_deviations[-1], len(centres), action))
 
-                if num_deviations[-1] > 0:
-
+                if len(num_deviations) > 1 and num_deviations[-1] > 0 and num_deviations[-2] > 0 \
+                        and last_aff_adjustment < last_surv_time:
+                    reprofile = True
+                    last_aff_adjustment = ts_entry.time
                     # 2 affinity groups is the lower bound
                     if len(centres) > 2:
                         centres = centres[:-1]
                         self.logger.info('Decreasing affinity groups to {}'.format(len(centres)))
 
-                        # rerun ekm with new centres
-                        steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
-
                 # no deviation occured for 2 consecutive epochs
-                elif ts_entry.time >= 2 and num_deviations[-1] == 0 and num_deviations[-2] == 0:
+                elif len(num_deviations) > 1 and num_deviations[-1] == 0 and num_deviations[-2] == 0 \
+                        and last_aff_adjustment < last_surv_time:
                     # pick a random vnf profile to act as a new centre
                     cid = np.random.randint(len(ts_entry.entry))
                     centres = np.append(centres, [ts_entry.entry[cid]], axis=0)
@@ -244,22 +250,34 @@ class Simulation:
                                      format(len(centres), centres[-1]))
 
                     # rerun ekm with new centres
-                    steps, centres, aff_groups, points = self.run_ekm(init_centres=centres, points=ts_entry.entry)
+                    reprofile = True
+                    last_aff_adjustment = ts_entry.time
 
                 old_aff_groups = aff_groups
+                old_centres = centres
+                if reprofile:
+                    steps, centres, aff_groups, points, granularity = self.run_ekm(init_centres=centres, points=ts_entry.entry)
+
+                last_surv_time = ts_entry.time
+
             ts_entry = self.time_series.get_next(delta=mon_periods[mon_id])
 
+        # write results to file for further processing
         if self.results_dir:
-            file_name = self.results_dir + 'num_aff_groups_{}_{}'.format(self.std, self.num_profiles)
+            file_name = self.results_dir + 'num_aff_groups_{}_{}'.format(int(100 * self.std), self.num_profiles)
             with open(file_name, 'w') as data_file:
                 data_file.write(str(len(num_aff_groups)) + '\n')
                 data_file.write(' '.join(map(str, num_aff_groups)))
 
-            file_name = self.results_dir + 'surv_epoch_lengths{}_{}'.format(self.std, self.num_profiles)
+            file_name = self.results_dir + 'mon_indices_{}_{}'.format(int(100 * self.std), self.num_profiles)
+            with open(file_name, 'w') as data_file:
+                data_file.write(str(len(mon_indices)) + '\n')
+                data_file.write(' '.join(map(str, mon_indices)))
+
+            file_name = self.results_dir + 'surv_epoch_lengths_{}_{}'.format(int(100 * self.std), self.num_profiles)
             with open(file_name, 'w') as data_file:
                 data_file.write(str(len(surv_epoch_lengths)) + '\n')
                 data_file.write(' '.join(map(str, surv_epoch_lengths)))
-
 
         self.logger.info('Simulation finished!')
         self.logger.info('FINAL STATS Number of affinity groups: {}'.format(len(centres)))
