@@ -57,7 +57,7 @@ class Simulation:
             self.logger.info('Reading time series from files...')
 
             if input_file is True:
-                input_file = 'data_{}_{}/ztorch_out'.format(int(std*100), num_init_profiles)
+                input_file = 'data/data_{}_{}/ztorch_out'.format(int(std*100), num_init_profiles)
 
             # read init profiles into memory, next items will be read during simulation execution
             with open(input_file + '0', 'rb') as data_file:
@@ -79,7 +79,7 @@ class Simulation:
                                               num_init_profiles//len(base_vnf_profiles['high']))
 
             if output_file is True:
-                output_file = 'data_{}_{}'.format(int(std*100), len(init_profiles))
+                output_file = 'data/data_{}_{}'.format(int(std*100), len(init_profiles))
                 pathlib.Path(output_file).mkdir(parents=True, exist_ok=True)
                 output_file += '/ztorch_out'
 
