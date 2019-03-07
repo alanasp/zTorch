@@ -183,9 +183,9 @@ class Simulation:
         num_deviations = list()
         alerts = [False]
 
-        num_aff_groups = list()
-        mon_indices = list()
-        surv_epoch_lengths = list()
+        num_aff_groups = [(0, len(centres))]
+        mon_indices = [(0, mon_id)]
+        surv_epoch_lengths = [(0, surv_epoch)]
 
         last_surv_time = 0
 
@@ -194,11 +194,6 @@ class Simulation:
             prev_points = points
             points = ts_entry.entry
 
-            if ts_entry.time % 50 == 0:
-                num_aff_groups.append(len(centres))
-                mon_indices.append(mon_id)
-                surv_epoch_lengths.append(surv_epoch)
-
             # conduct monitoring
             if ts_entry.time % mon_periods[mon_id] == 0:
                 if utils.count_deviations(points, aff_groups, centres, granularity) > 0:
@@ -206,6 +201,10 @@ class Simulation:
 
             # end of surveillance epoch
             if ts_entry.time - last_surv_time >= surv_epoch:
+
+                num_aff_groups.append((ts_entry.time, len(centres)))
+                mon_indices.append((ts_entry.time, mon_id))
+                surv_epoch_lengths.append((ts_entry.time, surv_epoch))
 
                 reprofile = False
 
@@ -226,9 +225,9 @@ class Simulation:
 
                 if len(num_deviations) >= 2:
                     # action taken is the difference between epoch lengths adjusted to non-negative range
-                    action_taken = self.q_table.shape[1]//2 + (surv_epoch_lengths[-1] - surv_epoch_lengths[-2])//50
+                    action_taken = self.q_table.shape[1]//2 + (surv_epoch_lengths[-1][1] - surv_epoch_lengths[-2][1])//50
                     # we were in a state 'num_deviations[-2]', took action and ended up in 'num_deviations[-1]'
-                    self.update_q_table(num_deviations[-2], action_taken, num_deviations[-1], surv_epoch_lengths[-1])
+                    self.update_q_table(num_deviations[-2], action_taken, num_deviations[-1], surv_epoch_lengths[-1][1])
 
                 action = self.get_action(num_deviations[-1])
                 surv_epoch += 50*(action - self.q_table.shape[1]//2)
@@ -269,20 +268,21 @@ class Simulation:
 
         # write results to file for further processing
         if self.results_dir:
+            tuple_to_str = lambda t: str(t[0]) + ' ' + str(t[1])
             file_name = self.results_dir + 'num_aff_groups_{}_{}'.format(int(100 * self.std), self.num_profiles)
             with open(file_name, 'w') as data_file:
                 data_file.write(str(len(num_aff_groups)) + '\n')
-                data_file.write(' '.join(map(str, num_aff_groups)))
+                data_file.write('\n'.join(map(tuple_to_str, num_aff_groups)))
 
             file_name = self.results_dir + 'mon_indices_{}_{}'.format(int(100 * self.std), self.num_profiles)
             with open(file_name, 'w') as data_file:
                 data_file.write(str(len(mon_indices)) + '\n')
-                data_file.write(' '.join(map(str, mon_indices)))
+                data_file.write('\n'.join(map(tuple_to_str, mon_indices)))
 
             file_name = self.results_dir + 'surv_epoch_lengths_{}_{}'.format(int(100 * self.std), self.num_profiles)
             with open(file_name, 'w') as data_file:
                 data_file.write(str(len(surv_epoch_lengths)) + '\n')
-                data_file.write(' '.join(map(str, surv_epoch_lengths)))
+                data_file.write('\n'.join(map(tuple_to_str, surv_epoch_lengths)))
 
         self.logger.info('Simulation finished!')
         self.logger.info('FINAL STATS Number of affinity groups: {}'.format(len(centres)))

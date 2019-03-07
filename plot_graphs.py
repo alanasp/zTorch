@@ -1,68 +1,50 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-import ztorch_simulation
 
 plt_color_codes = 'bgrcmykw'
 
+results_folder = 'results/'
 
-num_vnf_profiles = 1000
-num_vnf_kpis = 3
-num_base_profiles = len(ztorch_simulation.base_vnf_profiles['high'])
-surveilance_epoch = 500
-beta = 0.5
-phi = 0.5
-psi = 0.9
-vnf_profile_std = 0.1
-mon_interval = [2, 5, 10, 20, 50]
-sim_time = 10**7
+# simulation identifiers for which we generate graphs
+simulations = [(10, 750), (10, 1000), (10, 1250), (6, 1000), (8, 1000), (12, 1000)]
 
-k_means_granularity = 0.001
+data_names = ['num_aff_groups', 'mon_indices', 'surv_epoch_lengths']
 
+results = dict()
 
+for data_name in data_names:
+    results[data_name] = dict()
+    for i in range(len(simulations)):
+        sim = simulations[i]
+        with open(results_folder + '{}_{}_{}'.format(data_name, sim[0], sim[1])) as data_file:
+            n = int(data_file.readline())
+            x = list()
+            y = list()
+            rolling_avg = 0.0
+            m = 0
+            for line in data_file:
+                nums = line.split(' ')
+                val = int(nums[1])
+                rolling_avg = (rolling_avg*m + val)/(m+1)
+                m += 1
+                x.append(int(nums[0]))
+                y.append(rolling_avg)
+            results[data_name][sim] = (x, y)
 
-#print(base_vnf_profiles['high'])
-#init_profiles = data_gen.gen_init_profiles(base_vnf_profiles['high'], 1)
-#print(init_profiles)
+plot_descriptors = [[(10, 750), (10, 1000), (10, 1250)],
+                    [(6, 1000), (10, 1000), (8, 1000), (12, 1000)]]
 
-sim008 = ztorch_simulation.Simulation(std=0.08, output_files_prefix=True)
-sim008 = ztorch_simulation.Simulation(init_profiles=1000, std=0.08, input_files_prefix=True)
+for row_id in range(len(plot_descriptors)):
+    for i in range(len(data_names)):
+        plt.subplot(len(plot_descriptors), len(data_names), row_id*len(data_names) + i+1)
+        data_name = data_names[i]
+        plot_data = list()
+        for i in range(len(plot_descriptors[row_id])):
+            sim = plot_descriptors[row_id][i]
+            plot_data.append(results[data_name][sim][0])
+            plot_data.append(results[data_name][sim][1])
+            plot_data.append(plt_color_codes[i])
+        plt.plot(*plot_data)
 
-exit(0)
-
-sim010 = ztorch_simulation.Simulation(std=0.1)
-sim012 = ztorch_simulation.Simulation(std=0.12)
-sims = []
-
-num_aff_groups = []
-for sim in sims:
-    num_aff_groups.append(sim.run_sim())
-
-
-steps, centres, aff_groups, points = sim010.run_ekm()
-vnf_groups = ztorch_simulation.group_points(points, aff_groups)
-
-plot_ekm_results = True
-plot_sim_results = False
-
-if plot_ekm_results:
-    fig = plt.figure()
-    ax = fig.gca(projection='3d')
-
-    avail_colors = set(plt_color_codes)
-
-    for gid in vnf_groups:
-        group = vnf_groups[gid]
-        if len(avail_colors) > 0:
-            color = avail_colors.pop()
-            ax.scatter(*group.T, c=color, alpha=0.3)
-
-    ax.set_xlim(0, 100)
-    ax.set_ylim(0, 100)
-    ax.set_zlim(0, 100)
-    plt.show()
-
-if plot_sim_results:
-    for aff in num_aff_groups:
-        plt.plot(aff)
-    plt.show()
+plt.show()
