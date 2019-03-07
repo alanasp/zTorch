@@ -21,6 +21,8 @@ base_vnf_profiles = {
 
 default_params = {
     'surv_epoch': 500,
+    'min_surv_delta': 10,
+    'min_surv_epoch': 50,
     'mon_periods': [2, 5, 10, 20, 50],
     'default_mon_period_id': 2,
     'learning_rate': 0.5,
@@ -35,8 +37,10 @@ class Simulation:
     # If input_file is True, reads time series from the default file (can specify custom file base name)
     # The custom specified name will be appended with _data for time series data, so specifying file name XYZ
     #   means that the function will expect a file XYZ_data
+    # on_the_fly option if set to True generates data as needed w/o writing to or reading from file and
+    #   w/o keeping it in memory
     def __init__(self, std=0.1, num_init_profiles=1000, steps=None, output_file=None, input_file=None,
-                 results_dir=True):
+                 results_dir=True, on_the_fly=False):
         self.logger = custom_logger.get_logger('Simulation_{}_{}'.format(int(std*100), num_init_profiles))
         self.logger.info('Initialising simulation...')
 
@@ -71,7 +75,8 @@ class Simulation:
                 init_profiles = np.reshape(np.fromstring(data_file.read()), (-1, 3))
                 self.time_series = TimeSeries(init_profiles, file_prefix=input_file, max_time=num_time_steps)
 
-        else:
+        # generate time series either to file or to memory
+        elif output_file is not None or not on_the_fly:
 
             self.logger.info('Generating time series...')
 
@@ -105,6 +110,17 @@ class Simulation:
 
             self.time_series.load_entry(time=0)
 
+        elif on_the_fly and steps is not None:
+            self.logger.info('Setting up ON THE FLY time series...')
+
+            init_profiles = utils.gen_init_profiles(base_vnf_profiles['high'],
+                                                    num_init_profiles // len(base_vnf_profiles['high']))
+
+            self.time_series = TimeSeries(init_profiles, on_the_fly=True, std=self.std, max_time=self.total_steps)
+
+        else:
+            raise Exception('Invalid options!')
+
         self.logger.info('Time series initialized!')
 
         # create default gravity centres for ekm based on base vnf profiles
@@ -118,15 +134,19 @@ class Simulation:
 
         # Q-Learning table, to be filled during first run of simulation and then further updated
         self.q_table = np.zeros((len(init_profiles)+1, 5))
-        #for i in range(self.q_table.shape[0]):
-        #    for j in range(self.q_table[0].shape[1]):
+        incr = 500.0
+        # fill q-table with reasonable initial values
+        for j in range(self.q_table.shape[1]):
+            self.q_table[0][j] = incr*j
+
+        for i in range(1, self.q_table.shape[0]):
+            for j in range(self.q_table.shape[1]):
+                mult = (self.q_table.shape[1]//2 - j)/(self.q_table.shape[1]//2)
+                self.q_table[i][j] = self.q_table[i-1][j] + mult*incr
 
 
         # Number of times each Q-Table state was visited
         self.num_visited = np.zeros(len(init_profiles)+1)
-
-        if data_file:
-            data_file.close()
 
         self.logger.info('Simulation initialised!')
 
@@ -168,6 +188,8 @@ class Simulation:
         surv_epoch = params['surv_epoch']
         mon_periods = params['mon_periods']
         mon_id = params['default_mon_period_id']
+        min_surv_delta = params['min_surv_delta']
+        min_surv_epoch = params['min_surv_epoch']
         self.logger.info('Running simulation with surveillance epoch of {}t...'.format(surv_epoch))
         if centres is None:
             centres = np.array([[75, 75, 75], [25, 25, 25]])
@@ -179,63 +201,62 @@ class Simulation:
         last_aff_adjustment = 0
         old_aff_groups = aff_groups
         old_centres = centres
+        prev_points = points
 
         num_deviations = list()
-        alerts = [False]
+        alerts = [0]
 
         num_aff_groups = [(0, len(centres))]
-        mon_indices = [(0, mon_id)]
+        mon_indices = [(0, mon_id+1)]
         surv_epoch_lengths = [(0, surv_epoch)]
 
         last_surv_time = 0
+        last_mon_time = 0
 
         while ts_entry:
-
-            prev_points = points
             points = ts_entry.entry
 
             # conduct monitoring
-            if ts_entry.time % mon_periods[mon_id] == 0:
-                if utils.count_deviations(points, aff_groups, centres, granularity) > 0:
-                    alerts[-1] = True
+            if ts_entry.time - last_mon_time >= mon_periods[mon_id]:
+                last_mon_time = ts_entry.time
+                alerts[-1] += utils.count_deviations(points, aff_groups, centres, granularity)
 
             # end of surveillance epoch
             if ts_entry.time - last_surv_time >= surv_epoch:
 
                 num_aff_groups.append((ts_entry.time, len(centres)))
-                mon_indices.append((ts_entry.time, mon_id))
+                mon_indices.append((ts_entry.time, mon_id+1))
                 surv_epoch_lengths.append((ts_entry.time, surv_epoch))
 
                 reprofile = False
 
                 # check alerts and ask for reprofiling if there were deviations in 2 consecutive periods
-                if alerts[-1] and (len(alerts) < 2 or not alerts[-2]):
+                if alerts[-1] > 0 and (len(alerts) < 2 or alerts[-2] == 0):
                     mon_id = max(0, mon_id-1)
-                elif alerts[-1] and alerts[-2]:
+                elif alerts[-1] > 0 and alerts[-2] > 0:
                     # reset monitoring frequency
                     mon_id = params['default_mon_period_id']
                     reprofile = True
-                elif not alerts[-1]:
+                elif alerts[-1] == 0:
                     mon_id = min(len(mon_periods)-1, mon_id+1)
-
-                alerts.append(False)
 
                 devs = utils.count_deviations(points, aff_groups, centres, granularity)
                 num_deviations.append(devs)
 
-                if len(num_deviations) >= 2:
+                if len(alerts) >= 2:
                     # action taken is the difference between epoch lengths adjusted to non-negative range
-                    action_taken = self.q_table.shape[1]//2 + (surv_epoch_lengths[-1][1] - surv_epoch_lengths[-2][1])//50
-                    # we were in a state 'num_deviations[-2]', took action and ended up in 'num_deviations[-1]'
-                    self.update_q_table(num_deviations[-2], action_taken, num_deviations[-1], surv_epoch_lengths[-1][1])
+                    action_taken = self.q_table.shape[1]//2 + \
+                                   (surv_epoch_lengths[-1][1] - surv_epoch_lengths[-2][1])//min_surv_delta
+                    # we were in a state 'alerts[-2]', took action and ended up in 'alerts[-1]'
+                    self.update_q_table(alerts[-2], action_taken, alerts[-1], surv_epoch_lengths[-1][1])
 
-                action = self.get_action(num_deviations[-1])
-                surv_epoch += 50*(action - self.q_table.shape[1]//2)
-                surv_epoch = max(surv_epoch, 50)
-                self.logger.info('Time: {} Surv epoch: {} Mon_id: {} Num deviations: {} Aff groups: {} Action: {} '.
-                                 format(ts_entry.time, surv_epoch, mon_id, num_deviations[-1], len(centres), action))
+                action = self.get_action(alerts[-1])
+                surv_epoch += min_surv_delta*(action - self.q_table.shape[1]//2)
+                surv_epoch = max(surv_epoch, min_surv_epoch)
+                self.logger.info('Time: {} Surv epoch: {} Mon_id: {} Alerts: {} Aff groups: {} Action: {} '.
+                                 format(ts_entry.time, surv_epoch, mon_id, alerts[-1], len(centres), action))
 
-                if len(num_deviations) > 1 and num_deviations[-1] > 0 and num_deviations[-2] > 0 \
+                if len(alerts) > 1 and alerts[-1] > 0 and alerts[-2] > 0 \
                         and last_aff_adjustment < last_surv_time:
                     reprofile = True
                     last_aff_adjustment = ts_entry.time
@@ -245,7 +266,7 @@ class Simulation:
                         self.logger.info('Decreasing affinity groups to {}'.format(len(centres)))
 
                 # no deviation occured for 2 consecutive epochs
-                elif len(num_deviations) > 1 and num_deviations[-1] == 0 and num_deviations[-2] == 0 \
+                elif len(alerts) > 1 and alerts[-1] == 0 and alerts[-2] == 0 \
                         and last_aff_adjustment < last_surv_time:
                     # pick a random vnf profile to act as a new centre
                     cid = np.random.randint(len(ts_entry.entry))
@@ -262,9 +283,15 @@ class Simulation:
                 if reprofile:
                     steps, centres, aff_groups, points, granularity = self.run_ekm(init_centres=centres, points=ts_entry.entry)
 
+                prev_points = points
+                alerts.append(0)
                 last_surv_time = ts_entry.time
 
             ts_entry = self.time_series.get_next(delta=mon_periods[mon_id])
+
+        num_aff_groups.append((self.total_steps, len(centres)))
+        mon_indices.append((self.total_steps, mon_id + 1))
+        surv_epoch_lengths.append((self.total_steps, surv_epoch))
 
         # write results to file for further processing
         if self.results_dir:
