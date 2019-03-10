@@ -1,6 +1,7 @@
 import numpy as np
 import custom_logger
 import pathlib
+import os
 
 from timeseries import TimeSeries, TSEntry
 import utils
@@ -21,8 +22,8 @@ base_vnf_profiles = {
 
 default_params = {
     'surv_epoch': 500,
-    'min_surv_delta': 10,
-    'min_surv_epoch': 50,
+    'min_surv_delta': 50,
+    'min_surv_epoch': 500,
     'mon_periods': [2, 5, 10, 20, 50],
     'default_mon_period_id': 2,
     'learning_rate': 0.5,
@@ -134,55 +135,14 @@ class Simulation:
 
         # Q-Learning table, to be filled during first run of simulation and then further updated
         self.q_table = np.zeros((len(init_profiles)+1, 5))
-        incr = 500.0
-        # fill q-table with reasonable initial values
-        for j in range(self.q_table.shape[1]):
-            self.q_table[0][j] = incr*j
 
-        for i in range(1, self.q_table.shape[0]):
-            for j in range(self.q_table.shape[1]):
-                mult = (self.q_table.shape[1]//2 - j)/(self.q_table.shape[1]//2)
-                self.q_table[i][j] = self.q_table[i-1][j] + mult*incr
-
+        # attempt loading trained q_table from file
+        self.load_q_table()
 
         # Number of times each Q-Table state was visited
         self.num_visited = np.zeros(len(init_profiles)+1)
 
         self.logger.info('Simulation initialised!')
-
-    # runs enhanced k-means clustering algorithm
-    def run_ekm(self, init_centres=None, points=None):
-        if init_centres is None:
-            init_centres = self.default_centres
-        if points is None:
-            points = self.time_series.first.entry
-        self.logger.info('Running ekm with {} clusters and {} points...'.format(len(init_centres), len(points)))
-        centres = np.array(init_centres)
-        steps = 0
-        aff_groups = [-1]*len(points)
-        converged = False
-        granularity = 1e-100
-        while not converged:
-            power = min(len(points), 1000)
-            granularity = max(granularity, 100*steps**(np.sqrt(power))/2.0**power)
-            for i in range(len(points)):
-                min_dist = 1e10
-                for j in range(len(centres)):
-                    dist = np.linalg.norm(points[i]-centres[j])
-                    if dist < min_dist:
-                        min_dist = dist
-                        aff_groups[i] = j
-            new_centres = self.calc_centres(points, aff_groups, len(centres))
-
-            centres = self.snap_to_grid(centres, granularity)
-            new_centres = self.snap_to_grid(new_centres, granularity)
-
-            if np.all(np.equal(new_centres, centres)):
-                converged = True
-            centres = new_centres
-            steps += 1
-        self.logger.info('ekm converged in {} steps'.format(steps))
-        return steps, centres, aff_groups, points, granularity
 
     def run_sim(self, centres=None, params=default_params):
         surv_epoch = params['surv_epoch']
@@ -219,7 +179,8 @@ class Simulation:
             # conduct monitoring
             if ts_entry.time - last_mon_time >= mon_periods[mon_id]:
                 last_mon_time = ts_entry.time
-                alerts[-1] += utils.count_deviations(points, aff_groups, centres, granularity)
+                if utils.count_deviations(points, aff_groups, centres, granularity) > 0:
+                    alerts[-1] += 1
 
             # end of surveillance epoch
             if ts_entry.time - last_surv_time >= surv_epoch:
@@ -253,8 +214,9 @@ class Simulation:
                 action = self.get_action(alerts[-1])
                 surv_epoch += min_surv_delta*(action - self.q_table.shape[1]//2)
                 surv_epoch = max(surv_epoch, min_surv_epoch)
-                self.logger.info('Time: {} Surv epoch: {} Mon_id: {} Alerts: {} Aff groups: {} Action: {} '.
-                                 format(ts_entry.time, surv_epoch, mon_id, alerts[-1], len(centres), action))
+                implied_std = np.sqrt(np.average(np.square(points-self.time_series.first.entry)))
+                self.logger.info('Time: {} Surv epoch: {} Mon_id: {} Alerts: {} Implied std: {} std: {} Aff groups: {} Action: {} '.
+                                 format(ts_entry.time, surv_epoch, mon_id, alerts[-1], implied_std, self.time_series.std, len(centres), action))
 
                 if len(alerts) > 1 and alerts[-1] > 0 and alerts[-2] > 0 \
                         and last_aff_adjustment < last_surv_time:
@@ -311,11 +273,68 @@ class Simulation:
                 data_file.write(str(len(surv_epoch_lengths)) + '\n')
                 data_file.write('\n'.join(map(tuple_to_str, surv_epoch_lengths)))
 
+        self.write_q_table()
         self.logger.info('Simulation finished!')
         self.logger.info('FINAL STATS Number of affinity groups: {}'.format(len(centres)))
         return np.array(num_aff_groups)
 
-    def get_action(self, state, random_prob=0.5):
+    def load_q_table(self):
+        q_filename = 'config/q_table_{}_{}'.format(int(self.std*100), self.num_profiles)
+        if os.path.exists(q_filename):
+            with open(q_filename, 'rb') as q_file:
+                self.q_table = np.reshape(np.fromstring(q_file.read()), self.q_table.shape)
+        else:
+            incr = 500.0
+            # fill q-table with reasonable initial values
+            for j in range(self.q_table.shape[1]):
+                self.q_table[0][j] = incr * j
+
+            for i in range(1, self.q_table.shape[0]):
+               for j in range(self.q_table.shape[1]):
+                   mult = (self.q_table.shape[1]//2 - j)/(self.q_table.shape[1]//2)
+                   self.q_table[i][j] = self.q_table[i-1][j] + mult*incr
+
+    def write_q_table(self):
+        pathlib.Path('config').mkdir(parents=True, exist_ok=True)
+        q_filename = 'config/q_table_{}_{}'.format(int(self.std * 100), self.num_profiles)
+        with open(q_filename, 'wb') as q_file:
+            q_file.write(self.q_table.tostring())
+
+    # runs enhanced k-means clustering algorithm
+    def run_ekm(self, init_centres=None, points=None):
+        if init_centres is None:
+            init_centres = self.default_centres
+        if points is None:
+            points = self.time_series.first.entry
+        self.logger.info('Running ekm with {} clusters and {} points...'.format(len(init_centres), len(points)))
+        centres = np.array(init_centres)
+        steps = 0
+        aff_groups = [-1] * len(points)
+        converged = False
+        granularity = 1e-100
+        while not converged:
+            power = min(len(points), 1000)
+            granularity = max(granularity, 100 * steps ** (np.sqrt(power)) / 2.0 ** power)
+            for i in range(len(points)):
+                min_dist = 1e10
+                for j in range(len(centres)):
+                    dist = np.linalg.norm(points[i] - centres[j])
+                    if dist < min_dist:
+                        min_dist = dist
+                        aff_groups[i] = j
+            new_centres = self.calc_centres(points, aff_groups, len(centres))
+
+            centres = self.snap_to_grid(centres, granularity)
+            new_centres = self.snap_to_grid(new_centres, granularity)
+
+            if np.all(np.equal(new_centres, centres)):
+                converged = True
+            centres = new_centres
+            steps += 1
+        self.logger.info('ekm converged in {} steps'.format(steps))
+        return steps, centres, aff_groups, points, granularity
+
+    def get_action(self, state, random_prob=0.1):
         is_random = (np.random.uniform(0.0, 1.0) < random_prob)
         # return random action (for exploration purposes)
         if is_random:
