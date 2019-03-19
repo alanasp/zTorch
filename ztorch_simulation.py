@@ -22,7 +22,7 @@ base_vnf_profiles = {
 
 default_params = {
     'surv_epoch': 500,
-    'min_surv_delta': 50,
+    'min_surv_delta': 10,
     'min_surv_epoch': 500,
     'mon_periods': [2, 5, 10, 20, 50],
     'default_mon_period_id': 2,
@@ -78,6 +78,8 @@ class Simulation:
 
         # generate time series either to file or to memory
         elif output_file is not None or not on_the_fly:
+            if self.total_steps is None:
+                self.total_steps = 10000
 
             self.logger.info('Generating time series...')
 
@@ -112,6 +114,9 @@ class Simulation:
             self.time_series.load_entry(time=0)
 
         elif on_the_fly and steps is not None:
+            if self.total_steps is None:
+                self.total_steps = 10000
+
             self.logger.info('Setting up ON THE FLY time series...')
 
             init_profiles = utils.gen_init_profiles(base_vnf_profiles['high'],
@@ -179,8 +184,7 @@ class Simulation:
             # conduct monitoring
             if ts_entry.time - last_mon_time >= mon_periods[mon_id]:
                 last_mon_time = ts_entry.time
-                if utils.count_deviations(points, aff_groups, centres, granularity) > 0:
-                    alerts[-1] += 1
+                alerts[-1] += utils.count_deviations(points, aff_groups, centres, granularity)
 
             # end of surveillance epoch
             if ts_entry.time - last_surv_time >= surv_epoch:
@@ -191,6 +195,7 @@ class Simulation:
 
                 reprofile = False
 
+                alerts[-1] = min(alerts[-1], points.shape[0])
                 # check alerts and ask for reprofiling if there were deviations in 2 consecutive periods
                 if alerts[-1] > 0 and (len(alerts) < 2 or alerts[-2] == 0):
                     mon_id = max(0, mon_id-1)
@@ -334,7 +339,7 @@ class Simulation:
         self.logger.info('ekm converged in {} steps'.format(steps))
         return steps, centres, aff_groups, points, granularity
 
-    def get_action(self, state, random_prob=0.1):
+    def get_action(self, state, random_prob=0.5):
         is_random = (np.random.uniform(0.0, 1.0) < random_prob)
         # return random action (for exploration purposes)
         if is_random:

@@ -8,7 +8,7 @@ plt_color_codes = 'bgrcmykw'
 results_folder = 'results/'
 
 # simulation identifiers for which we generate graphs
-simulations = [(50, 100), (50, 500), (50, 1000), (1, 500), (200, 500), (500, 500)]
+simulations = [(50, 100), (10, 1000), (50, 1000), (6, 1000), (8, 1000), (12, 1000)]
 
 data_names = ['num_aff_groups', 'mon_indices', 'surv_epoch_lengths']
 
@@ -22,27 +22,43 @@ for data_name in data_names:
             n = int(data_file.readline())
             x = list()
             y = list()
-            avgs = list()
-            rolling_avg = 0.0
-            m = 0
+
             for line in data_file:
                 nums = line.split(' ')
-                val = int(nums[1])
+                time, val = map(int, nums)
 
-                if m < 20:
+                if len(x) > 0:
+                    t = x[-1] + 100
+                    prev_val = y[-1]
+                    prev_time = x[-1]
+                    while t < time:
+                        x.append(t)
+                        y.append(prev_val + (t-prev_time)/(time-prev_time)*(val-prev_val))
+                        t += 100
+                    x.append(t)
+                    y.append(val)
+                else:
+                    x.append(time)
+                    y.append(val)
+
+            smoothed_vals = list()
+            rolling_avg = 0.0
+            m = 0
+            for i in range(len(y)):
+                val = y[i]
+                if m < 200:
                     rolling_avg = (rolling_avg * m + val) / (m + 1)
                     m += 1
                 else:
-                    rolling_avg += (1/m) * (val - y[-m])
-                x.append(int(nums[0]))
-                y.append(val)
-                avgs.append(rolling_avg)
+                    rolling_avg += (1/m) * (val - y[i-m])
+                smoothed_vals.append(rolling_avg)
+
             if data_name == 'surv_epoch_lengths':
-                y = np.array(y)
-                y = (100 * y / y[0]) - 100
+                smoothed_vals = np.array(smoothed_vals)
+                smoothed_vals = (100 * smoothed_vals / smoothed_vals[0]) - 100
             x = np.array(x)
             x = 100 * x / x[-1]
-            results[data_name][sim] = (x, avgs)
+            results[data_name][sim] = (x, smoothed_vals)
 
 plot_settings_by_data = {
     'num_aff_groups': {
