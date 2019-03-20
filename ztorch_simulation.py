@@ -34,6 +34,7 @@ default_params = {
 
 class Simulation:
     # Generates time series for each vnf
+    # std can be a single number or a list of size 3, which will indicate different stds for different features
     # If output_file is True, writes time series to the default file (can specify custom file base name)
     # If input_file is True, reads time series from the default file (can specify custom file base name)
     # The custom specified name will be appended with _data for time series data, so specifying file name XYZ
@@ -41,14 +42,21 @@ class Simulation:
     # on_the_fly option if set to True generates data as needed w/o writing to or reading from file and
     #   w/o keeping it in memory
     def __init__(self, std=0.1, num_init_profiles=1000, steps=None, output_file=None, input_file=None,
-                 results_dir=True, on_the_fly=False):
-        self.logger = custom_logger.get_logger('Simulation_{}_{}'.format(int(std*100), num_init_profiles))
+                 results_dir=True, on_the_fly=False, varied_mon_freq=False):
+        if type(std) is list:
+            self.logger = custom_logger.get_logger('Simulation_{}_{}_{}_{}'.format(int(std[0]*100), int(std[1]*100),
+                                                                                   int(std[2]*100), num_init_profiles))
+        else:
+            self.logger = custom_logger.get_logger('Simulation_{}_{}'.format(int(std*100), num_init_profiles))
+
         self.logger.info('Initialising simulation...')
 
         self.std = std
         self.num_profiles = num_init_profiles
 
         self.total_steps = steps
+
+        self.varied_mon_freq = varied_mon_freq
 
         if results_dir is True:
             # create results directory
@@ -62,7 +70,11 @@ class Simulation:
             self.logger.info('Reading time series from files...')
 
             if input_file is True:
-                input_file = 'data/data_{}_{}/ztorch_out'.format(int(std*100), num_init_profiles)
+                if type(std) is list:
+                    input_file = 'data/data_{}_{}_{}_{}/ztorch_out'.format(int(std[0]*100), int(std[1]*100),
+                                                                           int(std[2]*100), num_init_profiles)
+                else:
+                    input_file = 'data/data_{}_{}/ztorch_out'.format(int(std * 100), num_init_profiles)
 
             # read init profiles into memory, next items will be read during simulation execution
             with open(input_file + '0', 'rb') as data_file:
@@ -87,7 +99,11 @@ class Simulation:
                                               num_init_profiles//len(base_vnf_profiles['high']))
 
             if output_file is True:
-                output_file = 'data/data_{}_{}'.format(int(std*100), len(init_profiles))
+                if type(std) is list:
+                    output_file = 'data/data_{}_{}_{}_{}/ztorch_out'.format(int(std[0]*100), int(std[1]*100),
+                                                                            int(std[2]*100), num_init_profiles)
+                else:
+                    output_file = 'data/data_{}_{}/ztorch_out'.format(int(std * 100), num_init_profiles)
                 pathlib.Path(output_file).mkdir(parents=True, exist_ok=True)
                 output_file += '/ztorch_out'
 
@@ -178,13 +194,32 @@ class Simulation:
         last_surv_time = 0
         last_mon_time = 0
 
+        mon_data_consumed = 0
+
+        #only used with varied_mon_freq
+        feature_mon_ids = np.array([mon_id]*points.shape[1])
+        last_feature_mon_times = np.array([0]*points.shape[1])
+        last_observed_vals = np.array(points)
+
         while ts_entry:
             points = ts_entry.entry
 
             # conduct monitoring
             if ts_entry.time - last_mon_time >= mon_periods[mon_id]:
-                last_mon_time = ts_entry.time
-                alerts[-1] += utils.count_deviations(points, aff_groups, centres, granularity)
+                if self.varied_mon_freq:
+                    #conduct monitoring by feature if mon_period elapsed
+                    for i in range(len(last_feature_mon_times)):
+                        if ts_entry.time - last_feature_mon_times[i] > mon_periods[feature_mon_ids[i]]:
+                            last_observed_vals[:, i] = points[:, i]
+                            last_feature_mon_times[i] = ts_entry.time
+                            mon_data_consumed += points.shape[0]
+                    last_mon_time = ts_entry.time
+                    #count deviations with the values that we actually observed
+                    alerts[-1] += utils.count_deviations(last_observed_vals, aff_groups, centres, granularity)
+                else:
+                    mon_data_consumed += points.shape[0] * points.shape[1]
+                    last_mon_time = ts_entry.time
+                    alerts[-1] += utils.count_deviations(points, aff_groups, centres, granularity)
 
             # end of surveillance epoch
             if ts_entry.time - last_surv_time >= surv_epoch:
@@ -205,6 +240,18 @@ class Simulation:
                     reprofile = True
                 elif alerts[-1] == 0:
                     mon_id = min(len(mon_periods)-1, mon_id+1)
+
+                if self.varied_mon_freq:
+                    feature_mon_ids = np.array([mon_id] * points.shape[1])
+                    mon_period = mon_periods[mon_id]
+                    max_std = max(self.std)
+                    if type(self.std) is list:
+                        for i in range(len(self.std)):
+                            ratio = max_std/self.std[i]
+                            this_period = mon_period/ratio
+                            for j in range(len(mon_periods)):
+                                if mon_periods[j] >= this_period:
+                                    feature_mon_ids[i] = j
 
                 devs = utils.count_deviations(points, aff_groups, centres, granularity)
                 num_deviations.append(devs)
@@ -263,17 +310,39 @@ class Simulation:
         # write results to file for further processing
         if self.results_dir:
             tuple_to_str = lambda t: str(t[0]) + ' ' + str(t[1])
-            file_name = self.results_dir + 'num_aff_groups_{}_{}'.format(int(100 * self.std), self.num_profiles)
+
+            if type(self.std) is list:
+                file_name = self.results_dir + 'num_aff_groups_{}_{}_{}_{}'.format(int(self.std[0] * 100),
+                                                                                   int(self.std[1] * 100),
+                                                                                   int(self.std[2] * 100),
+                                                                                   self.num_profiles)
+            else:
+                file_name = self.results_dir + 'num_aff_groups_{}_{}'.format(int(100 * self.std), self.num_profiles)
+
             with open(file_name, 'w') as data_file:
                 data_file.write(str(len(num_aff_groups)) + '\n')
                 data_file.write('\n'.join(map(tuple_to_str, num_aff_groups)))
 
-            file_name = self.results_dir + 'mon_indices_{}_{}'.format(int(100 * self.std), self.num_profiles)
+            if type(self.std) is list:
+                file_name = self.results_dir + 'mon_indices_{}_{}_{}_{}'.format(int(self.std[0] * 100),
+                                                                                int(self.std[1] * 100),
+                                                                                int(self.std[2] * 100),
+                                                                                self.num_profiles)
+            else:
+                file_name = self.results_dir + 'mon_indices_{}_{}'.format(int(100 * self.std), self.num_profiles)
+
             with open(file_name, 'w') as data_file:
                 data_file.write(str(len(mon_indices)) + '\n')
                 data_file.write('\n'.join(map(tuple_to_str, mon_indices)))
 
-            file_name = self.results_dir + 'surv_epoch_lengths_{}_{}'.format(int(100 * self.std), self.num_profiles)
+            if type(self.std) is list:
+                file_name = self.results_dir + 'surv_epoch_lengths_{}_{}_{}_{}'.format(int(self.std[0] * 100),
+                                                                                       int(self.std[1] * 100),
+                                                                                       int(self.std[2] * 100),
+                                                                                       self.num_profiles)
+            else:
+                file_name = self.results_dir + 'surv_epoch_lengths_{}_{}'.format(int(100 * self.std), self.num_profiles)
+
             with open(file_name, 'w') as data_file:
                 data_file.write(str(len(surv_epoch_lengths)) + '\n')
                 data_file.write('\n'.join(map(tuple_to_str, surv_epoch_lengths)))
@@ -281,10 +350,15 @@ class Simulation:
         self.write_q_table()
         self.logger.info('Simulation finished!')
         self.logger.info('FINAL STATS Number of affinity groups: {}'.format(len(centres)))
-        return np.array(num_aff_groups)
+        return mon_data_consumed, num_aff_groups
 
     def load_q_table(self):
-        q_filename = 'config/q_table_{}_{}'.format(int(self.std*100), self.num_profiles)
+
+        if type(self.std) is list:
+            q_filename = 'config/q_table_{}_{}_{}_{}'.format(int(self.std[0] * 100), int(self.std[1] * 100),
+                                                                        int(self.std[2] * 100), self.num_profiles)
+        else:
+            q_filename = 'config/q_table_{}_{}'.format(int(self.std * 100), self.num_profiles)
         if os.path.exists(q_filename):
             with open(q_filename, 'rb') as q_file:
                 self.q_table = np.reshape(np.fromstring(q_file.read()), self.q_table.shape)
@@ -295,13 +369,17 @@ class Simulation:
                 self.q_table[0][j] = incr * j
 
             for i in range(1, self.q_table.shape[0]):
-               for j in range(self.q_table.shape[1]):
-                   mult = (self.q_table.shape[1]//2 - j)/(self.q_table.shape[1]//2)
-                   self.q_table[i][j] = self.q_table[i-1][j] + mult*incr
+                for j in range(self.q_table.shape[1]):
+                    mult = (self.q_table.shape[1]//2 - j)/(self.q_table.shape[1]//2)
+                    self.q_table[i][j] = self.q_table[i-1][j] + mult*incr
 
     def write_q_table(self):
         pathlib.Path('config').mkdir(parents=True, exist_ok=True)
-        q_filename = 'config/q_table_{}_{}'.format(int(self.std * 100), self.num_profiles)
+        if type(self.std) is list:
+            q_filename = 'config/q_table_{}_{}_{}_{}'.format(int(self.std[0] * 100), int(self.std[1] * 100),
+                                                                        int(self.std[2] * 100), self.num_profiles)
+        else:
+            q_filename = 'config/q_table_{}_{}'.format(int(self.std * 100), self.num_profiles)
         with open(q_filename, 'wb') as q_file:
             q_file.write(self.q_table.tostring())
 
