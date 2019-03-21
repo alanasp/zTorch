@@ -205,7 +205,9 @@ class Simulation:
         feature_mon_ids = np.array([mon_id]*points.shape[1])
         last_feature_mon_times = np.array([0]*points.shape[1])
         last_observed_vals = np.array(points)
-        implied_kpi_std
+        prev_observations = list()
+        for i in range(points.shape[1]):
+            prev_observations.append(SlidingWindow(20))
 
         while ts_entry:
             points = ts_entry.entry
@@ -216,9 +218,11 @@ class Simulation:
                     #conduct monitoring by feature if mon_period elapsed
                     for i in range(len(last_feature_mon_times)):
                         if ts_entry.time - last_feature_mon_times[i] >= mon_periods[feature_mon_ids[i]]:
-                            last_observed_vals[:, i] = points[:, i]
+                            prev_observations[i].append(points[:, i])
+                            #last_observed_vals[:, i] = points[:, i]
                             last_feature_mon_times[i] = ts_entry.time
                             mon_data_consumed += points.shape[0]
+
                     last_mon_time = ts_entry.time
                     #count deviations with the values that we actually observed
                     alerts[-1] += utils.count_deviations(last_observed_vals, aff_groups, centres, granularity)
@@ -249,11 +253,17 @@ class Simulation:
                 if self.varied_mon_freq:
                     feature_mon_ids = np.array([mon_id] * points.shape[1])
                     mon_period = mon_periods[mon_id]
-                    max_std = max(self.std)
-                    if type(self.std) is list:
-                        for i in range(len(self.std)):
-                            ratio = max_std/self.std[i]
-                            this_period = mon_period/ratio
+                    if len(prev_observations[i]) >= 5:
+                        feat_stds = list()
+                        for i in range(len(prev_observations)):
+                            feat_stds.append(np.mean(np.std(prev_observations[i].data, axis=1)))
+                        max_std = max(feat_stds)
+                        if max_std < 0.01:
+                            feature_mon_ids = [4]*points.shape[1]
+                            break
+                        for i in range(len(feat_stds)):
+                            ratio = feat_stds[i]/max_std
+                            this_period = mon_period*ratio
                             for j in range(len(mon_periods)):
                                 if mon_periods[j] >= this_period:
                                     feature_mon_ids[i] = j
