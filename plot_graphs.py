@@ -5,10 +5,11 @@ from mpl_toolkits.mplot3d import Axes3D
 
 plt_color_codes = 'bgrcmykw'
 
-results_folder = 'results/'
+results_folder = 'results/4/'
 
 # simulation identifiers for which we generate graphs
-simulations = [(50, 100), (10, 1000), (50, 1000), (6, 1000), (8, 1000), (12, 1000)]
+#simulations = [(50, 100), (10, 1000), (50, 1000), (6, 1000), (8, 1000), (12, 1000)]
+simulations = [(10, 1000), (10, 1000), (10, 1000), (6, 1000), (8, 1000), (12, 1000)]
 
 data_names = ['num_aff_groups', 'mon_indices', 'surv_epoch_lengths']
 
@@ -46,7 +47,7 @@ for data_name in data_names:
             m = 0
             for i in range(len(y)):
                 val = y[i]
-                if m < 200:
+                if m < 100:
                     rolling_avg = (rolling_avg * m + val) / (m + 1)
                     m += 1
                 else:
@@ -82,7 +83,7 @@ plot_settings_by_sims = {
         'get_label': lambda sim: 'VNFs (I) = {}'.format(sim[1])
     },
     1: {
-        'sim_ids': [3, 4, 1, 5],
+        'sim_ids': [3, 1, 4, 5],
         'get_label': lambda sim: 'σ = {}'.format(sim[0]/100)
     }
 }

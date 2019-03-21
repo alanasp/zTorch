@@ -6,6 +6,8 @@ import os
 from timeseries import TimeSeries, TSEntry
 import utils
 
+from decision_engine import SlidingWindow
+
 base_vnf_profiles = {
      'low':  {'MME':  [17.7, 15.9, 5.8],
               'SGW':  [0.7, 0.3, 0.14],
@@ -22,7 +24,7 @@ base_vnf_profiles = {
 
 default_params = {
     'surv_epoch': 500,
-    'min_surv_delta': 10,
+    'min_surv_delta': 1,
     'min_surv_epoch': 500,
     'mon_periods': [2, 5, 10, 20, 50],
     'default_mon_period_id': 2,
@@ -43,11 +45,14 @@ class Simulation:
     #   w/o keeping it in memory
     def __init__(self, std=0.1, num_init_profiles=1000, steps=None, output_file=None, input_file=None,
                  results_dir=True, on_the_fly=False, varied_mon_freq=False):
+
         if type(std) is list:
-            self.logger = custom_logger.get_logger('Simulation_{}_{}_{}_{}'.format(int(std[0]*100), int(std[1]*100),
-                                                                                   int(std[2]*100), num_init_profiles))
+            self.sim_name = 'Simulation_{}_{}_{}_{}'.format(int(std[0]*100), int(std[1]*100),
+                                                            int(std[2]*100), num_init_profiles)
         else:
-            self.logger = custom_logger.get_logger('Simulation_{}_{}'.format(int(std*100), num_init_profiles))
+            self.sim_name = 'Simulation_{}_{}'.format(int(std*100), num_init_profiles)
+
+        self.logger = custom_logger.get_logger(self.sim_name)
 
         self.logger.info('Initialising simulation...')
 
@@ -60,7 +65,7 @@ class Simulation:
 
         if results_dir is True:
             # create results directory
-            results_dir = 'results/'
+            results_dir = 'results/4/'
             pathlib.Path(results_dir).mkdir(parents=True, exist_ok=True)
         self.results_dir = results_dir
 
@@ -155,7 +160,7 @@ class Simulation:
         self.centres_evolution = list()
 
         # Q-Learning table, to be filled during first run of simulation and then further updated
-        self.q_table = np.zeros((len(init_profiles)+1, 5))
+        self.q_table = np.zeros((2, 3))
 
         # attempt loading trained q_table from file
         self.load_q_table()
@@ -200,6 +205,7 @@ class Simulation:
         feature_mon_ids = np.array([mon_id]*points.shape[1])
         last_feature_mon_times = np.array([0]*points.shape[1])
         last_observed_vals = np.array(points)
+        implied_kpi_std
 
         while ts_entry:
             points = ts_entry.entry
@@ -209,7 +215,7 @@ class Simulation:
                 if self.varied_mon_freq:
                     #conduct monitoring by feature if mon_period elapsed
                     for i in range(len(last_feature_mon_times)):
-                        if ts_entry.time - last_feature_mon_times[i] > mon_periods[feature_mon_ids[i]]:
+                        if ts_entry.time - last_feature_mon_times[i] >= mon_periods[feature_mon_ids[i]]:
                             last_observed_vals[:, i] = points[:, i]
                             last_feature_mon_times[i] = ts_entry.time
                             mon_data_consumed += points.shape[0]
@@ -230,7 +236,6 @@ class Simulation:
 
                 reprofile = False
 
-                alerts[-1] = min(alerts[-1], points.shape[0])
                 # check alerts and ask for reprofiling if there were deviations in 2 consecutive periods
                 if alerts[-1] > 0 and (len(alerts) < 2 or alerts[-2] == 0):
                     mon_id = max(0, mon_id-1)
@@ -347,6 +352,7 @@ class Simulation:
                 data_file.write(str(len(surv_epoch_lengths)) + '\n')
                 data_file.write('\n'.join(map(tuple_to_str, surv_epoch_lengths)))
 
+        print(self.sim_name + ': {}'.format(self.q_table))
         self.write_q_table()
         self.logger.info('Simulation finished!')
         self.logger.info('FINAL STATS Number of affinity groups: {}'.format(len(centres)))
@@ -356,10 +362,10 @@ class Simulation:
 
         if type(self.std) is list:
             q_filename = 'config/q_table_{}_{}_{}_{}'.format(int(self.std[0] * 100), int(self.std[1] * 100),
-                                                                        int(self.std[2] * 100), self.num_profiles)
+                                                             int(self.std[2] * 100), self.num_profiles)
         else:
             q_filename = 'config/q_table_{}_{}'.format(int(self.std * 100), self.num_profiles)
-        if os.path.exists(q_filename):
+        if False:#os.path.exists(q_filename):
             with open(q_filename, 'rb') as q_file:
                 self.q_table = np.reshape(np.fromstring(q_file.read()), self.q_table.shape)
         else:
@@ -377,11 +383,11 @@ class Simulation:
         pathlib.Path('config').mkdir(parents=True, exist_ok=True)
         if type(self.std) is list:
             q_filename = 'config/q_table_{}_{}_{}_{}'.format(int(self.std[0] * 100), int(self.std[1] * 100),
-                                                                        int(self.std[2] * 100), self.num_profiles)
+                                                             int(self.std[2] * 100), self.num_profiles)
         else:
             q_filename = 'config/q_table_{}_{}'.format(int(self.std * 100), self.num_profiles)
-        with open(q_filename, 'wb') as q_file:
-            q_file.write(self.q_table.tostring())
+        #with open(q_filename, 'wb') as q_file:
+        #    q_file.write(self.q_table.tostring())
 
     # runs enhanced k-means clustering algorithm
     def run_ekm(self, init_centres=None, points=None):
@@ -418,6 +424,7 @@ class Simulation:
         return steps, centres, aff_groups, points, granularity
 
     def get_action(self, state, random_prob=0.5):
+        state = min(state, self.q_table.shape[0]-1)
         is_random = (np.random.uniform(0.0, 1.0) < random_prob)
         # return random action (for exploration purposes)
         if is_random:
@@ -429,20 +436,23 @@ class Simulation:
                 best_action = action
         return best_action
 
-    def get_reward(self, num_deviations, surv_epoch_length, beta=0.5):
+    def get_reward(self, num_deviations, surv_epoch_length, beta=5):
         # ensure reward function is able to deal with 0 deviations
         if num_deviations == 0:
-            num_deviations = 0.5
+            num_deviations = 1
         return surv_epoch_length/(num_deviations**beta)
 
     def update_q_table(self, state, action, next_state, surv_epoch_length, learning_rate=0.5, discount_rate=0.9):
+        num_deviations = state
+        state = min(state, self.q_table.shape[0]-1)
+        next_state = min(next_state, self.q_table.shape[0]-1)
         q_max = 0
         # loop through the actions in next state to find max reward
         for reward in self.q_table[next_state]:
             q_max = max(q_max, reward)
 
         self.q_table[state, action] = (1-learning_rate)*self.q_table[state, action] + \
-            learning_rate*(self.get_reward(state, surv_epoch_length) + discount_rate*q_max)
+            learning_rate*(self.get_reward(num_deviations, surv_epoch_length) + discount_rate*q_max)
 
     def calc_centres(self, points, point_group, num_centres):
         counts = [0]*num_centres

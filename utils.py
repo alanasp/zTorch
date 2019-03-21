@@ -14,7 +14,8 @@ def gen_init_profiles(base_profiles, count_per_base):
     for key in base_profiles:
         base = base_profiles[key]
         for i in range(count_per_base):
-            profile = np.random.pareto(1.16, size=len(base)) + np.array(base)
+            #profile = np.random.pareto(1.16, size=len(base)) * np.array(base)
+            profile = np.random.normal(0, 1, size=len(base)) * np.array(base)
             profiles.append(profile)
     profiles = np.array(cap_profiles(profiles))
     return profiles
@@ -39,7 +40,7 @@ def count_deviations(points, aff_groups, centres, granularity):
         group = aff_groups[pid]
         for cid in range(len(centres)):
             dist = np.linalg.norm(points[pid] - centres[cid])
-            if min_dist - dist > np.sqrt(points.shape[1])*granularity:
+            if min_dist - dist > 0.1:#np.sqrt(points.shape[1])*granularity:
                 min_dist = dist
                 group = cid
         if group != aff_groups[pid]:
