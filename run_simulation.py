@@ -74,18 +74,19 @@ if __name__ == '__main__':
     ]
 
     consumption_params = {
-        'std': [0.01, 0.10, 0.3],
+        'std': [0.01]*400 + [0.1]*400 + [0.3]*400,
         'num_init_profiles': 1000,
         'steps': num_time_steps,
         'input_file': False,
-        'on_the_fly': True
+        'on_the_fly': True,
+        'base_prof_name': '1200-feature'
     }
 
     unified_time = np.linspace(0, num_time_steps, num=50)
 
     measure_mon_data_consumption = True
     if measure_mon_data_consumption:
-        num_runs = 20
+        num_runs = 10
         interp_groups_non_varied = np.zeros(unified_time.shape)
         interp_groups_varied = np.zeros(unified_time.shape)
 
@@ -123,7 +124,7 @@ if __name__ == '__main__':
         print('Avg consumption varied: {}'.format(consumption_varied))
         std = consumption_params['std']
         num_prof = consumption_params['num_init_profiles']
-        filename = 'results/varied_v_non_varied_{}_{}_{}_{}'.format(int(100*std[0]), int(100*std[1]),
+        filename = 'results/5/varied_v_non_varied_{}_{}_{}_{}'.format(int(100*std[0]), int(100*std[1]),
                                                                            int(100*std[2]), num_prof)
         with open(filename, 'w') as file:
             li_time = np.ndarray.tolist(unified_time)

@@ -5,12 +5,11 @@ from mpl_toolkits.mplot3d import Axes3D
 
 plt_color_codes = 'bgrcmykw'
 
-std = [0.01, 0.1, 0.3]
+std = [0.01]*80 + [0.1]*80 + [0.3]*80
 num_prof = 1000
 
-filename = 'saved_exp_data/varied_v_non_varied_{}_{}_{}_{}'.format(int(100*std[0]), int(100*std[1]),
+filename = 'results/varied_v_non_varied_{}_{}_{}_{}'.format(int(100*std[0]), int(100*std[1]),
                                                                    int(100*std[2]), num_prof)
-
 
 with open(filename, 'r') as file:
     file.readline()

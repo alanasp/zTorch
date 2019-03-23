@@ -83,7 +83,10 @@ class TimeSeries:
                 if time == 0:
                     data_file.readline()
                     data_file.readline()
-                ts_entry = TSEntry(np.reshape(np.fromstring(data_file.read()), (-1, 3)), time)
+                if type(self.std) is list:
+                    ts_entry = TSEntry(np.reshape(np.fromstring(data_file.read()), (-1, len(self.std))), time)
+                else:
+                    ts_entry = TSEntry(np.reshape(np.fromstring(data_file.read()), (-1, 3)), time)
                 self.current = ts_entry
                 self.time_elapsed = time
                 self.shape = ts_entry.entry.shape

@@ -17,7 +17,12 @@ base_vnf_profiles = {
               'SGW':  [79.1, 3.3, 91.2],
               'HSS':  [2.9, 4.5, 1.3],
               'PCRF': [1.9, 3.9, 0.9],
-              'PGW':  [53.1, 37.2, 92]}
+              'PGW':  [53.1, 37.2, 92]},
+    '1200-feature': {'MME':  [2.9, 3.8, 1.9]*400,
+              'SGW':  [79.1, 3.3, 91.2]*400,
+              'HSS':  [2.9, 4.5, 1.3]*400,
+              'PCRF': [1.9, 3.9, 0.9]*400,
+              'PGW':  [53.1, 37.2, 92]*400}
 }
 
 default_params = {
@@ -42,12 +47,19 @@ class Simulation:
     # on_the_fly option if set to True generates data as needed w/o writing to or reading from file and
     #   w/o keeping it in memory
     def __init__(self, std=0.1, num_init_profiles=1000, steps=None, output_file=None, input_file=None,
-                 results_dir=True, on_the_fly=False, varied_mon_freq=False):
+                 results_dir=True, on_the_fly=False, varied_mon_freq=False, base_prof_name='high'):
         if type(std) is list:
-            self.logger = custom_logger.get_logger('Simulation_{}_{}_{}_{}'.format(int(std[0]*100), int(std[1]*100),
-                                                                                   int(std[2]*100), num_init_profiles))
+            if len(std) < 10:
+                self.format_base = '_%d'*(len(std)+1)
+                self.format_tuple = tuple(list(map(lambda x: 100*int(x), std[:10])) + [num_init_profiles])
+            else:
+                self.format_base = '_%d' * (len(std[:10]) + 1)
+                self.format_tuple = tuple(list(map(lambda x: 100*int(x), std[:10])) + [num_init_profiles])
+            self.name = 'Simulation' + self.format_base % self.format_tuple
+
         else:
-            self.logger = custom_logger.get_logger('Simulation_{}_{}'.format(int(std*100), num_init_profiles))
+            self.name = 'Simulation_{}_{}'.format(int(std * 100), num_init_profiles)
+        self.logger = custom_logger.get_logger(self.name)
 
         self.logger.info('Initialising simulation...')
 
@@ -60,7 +72,7 @@ class Simulation:
 
         if results_dir is True:
             # create results directory
-            results_dir = 'results/'
+            results_dir = 'results/5/'
             pathlib.Path(results_dir).mkdir(parents=True, exist_ok=True)
         self.results_dir = results_dir
 
@@ -71,8 +83,7 @@ class Simulation:
 
             if input_file is True:
                 if type(std) is list:
-                    input_file = 'data/data_{}_{}_{}_{}/ztorch_out'.format(int(std[0]*100), int(std[1]*100),
-                                                                           int(std[2]*100), num_init_profiles)
+                    input_file = 'data/data' + self.format_base + '/ztorch_out' % self.format_tuple
                 else:
                     input_file = 'data/data_{}_{}/ztorch_out'.format(int(std * 100), num_init_profiles)
 
@@ -95,13 +106,12 @@ class Simulation:
 
             self.logger.info('Generating time series...')
 
-            init_profiles = utils.gen_init_profiles(base_vnf_profiles['high'],
-                                              num_init_profiles//len(base_vnf_profiles['high']))
+            init_profiles = utils.gen_init_profiles(base_vnf_profiles[base_prof_name],
+                                              num_init_profiles//len(base_vnf_profiles[base_prof_name]))
 
             if output_file is True:
                 if type(std) is list:
-                    output_file = 'data/data_{}_{}_{}_{}/ztorch_out'.format(int(std[0]*100), int(std[1]*100),
-                                                                            int(std[2]*100), num_init_profiles)
+                    output_file = 'data/data' + self.format_base + '/ztorch_out' % self.format_tuple
                 else:
                     output_file = 'data/data_{}_{}/ztorch_out'.format(int(std * 100), num_init_profiles)
                 pathlib.Path(output_file).mkdir(parents=True, exist_ok=True)
@@ -135,8 +145,8 @@ class Simulation:
 
             self.logger.info('Setting up ON THE FLY time series...')
 
-            init_profiles = utils.gen_init_profiles(base_vnf_profiles['high'],
-                                                    num_init_profiles // len(base_vnf_profiles['high']))
+            init_profiles = utils.gen_init_profiles(base_vnf_profiles[base_prof_name],
+                                                    num_init_profiles // len(base_vnf_profiles[base_prof_name]))
 
             self.time_series = TimeSeries(init_profiles, on_the_fly=True, std=self.std, max_time=self.total_steps)
 
@@ -147,8 +157,8 @@ class Simulation:
 
         # create default gravity centres for ekm based on base vnf profiles
         self.default_centres = list()
-        for key in base_vnf_profiles['high']:
-            self.default_centres.append(base_vnf_profiles['high'][key])
+        for key in base_vnf_profiles[base_prof_name]:
+            self.default_centres.append(base_vnf_profiles[base_prof_name][key])
         self.default_centres = np.array(self.default_centres)
 
         # centres evolution will contain evolution of centres of gravity after running k-means
@@ -173,7 +183,10 @@ class Simulation:
         min_surv_epoch = params['min_surv_epoch']
         self.logger.info('Running simulation with surveillance epoch of {}t...'.format(surv_epoch))
         if centres is None:
-            centres = np.array([[75, 75, 75], [25, 25, 25]])
+            if type(self.std) is list:
+                centres = np.array([[75]*len(self.std), [25]*len(self.std)])
+            else:
+                centres = np.array([[75, 75, 75], [25, 25, 25]])
 
         ts_entry = self.time_series.current
 
@@ -312,10 +325,7 @@ class Simulation:
             tuple_to_str = lambda t: str(t[0]) + ' ' + str(t[1])
 
             if type(self.std) is list:
-                file_name = self.results_dir + 'num_aff_groups_{}_{}_{}_{}'.format(int(self.std[0] * 100),
-                                                                                   int(self.std[1] * 100),
-                                                                                   int(self.std[2] * 100),
-                                                                                   self.num_profiles)
+                file_name = self.results_dir + 'num_aff_groups' + self.format_base % self.format_tuple
             else:
                 file_name = self.results_dir + 'num_aff_groups_{}_{}'.format(int(100 * self.std), self.num_profiles)
 
@@ -324,10 +334,7 @@ class Simulation:
                 data_file.write('\n'.join(map(tuple_to_str, num_aff_groups)))
 
             if type(self.std) is list:
-                file_name = self.results_dir + 'mon_indices_{}_{}_{}_{}'.format(int(self.std[0] * 100),
-                                                                                int(self.std[1] * 100),
-                                                                                int(self.std[2] * 100),
-                                                                                self.num_profiles)
+                file_name = self.results_dir + 'mon_indices' + self.format_base % self.format_tuple
             else:
                 file_name = self.results_dir + 'mon_indices_{}_{}'.format(int(100 * self.std), self.num_profiles)
 
@@ -336,10 +343,7 @@ class Simulation:
                 data_file.write('\n'.join(map(tuple_to_str, mon_indices)))
 
             if type(self.std) is list:
-                file_name = self.results_dir + 'surv_epoch_lengths_{}_{}_{}_{}'.format(int(self.std[0] * 100),
-                                                                                       int(self.std[1] * 100),
-                                                                                       int(self.std[2] * 100),
-                                                                                       self.num_profiles)
+                file_name = self.results_dir + 'surv_epoch_lengths' + self.format_base % self.format_tuple
             else:
                 file_name = self.results_dir + 'surv_epoch_lengths_{}_{}'.format(int(100 * self.std), self.num_profiles)
 
@@ -355,8 +359,7 @@ class Simulation:
     def load_q_table(self):
 
         if type(self.std) is list:
-            q_filename = 'config/q_table_{}_{}_{}_{}'.format(int(self.std[0] * 100), int(self.std[1] * 100),
-                                                                        int(self.std[2] * 100), self.num_profiles)
+            q_filename = 'config/q_table' + self.format_base % self.format_tuple
         else:
             q_filename = 'config/q_table_{}_{}'.format(int(self.std * 100), self.num_profiles)
         if os.path.exists(q_filename):
@@ -376,8 +379,7 @@ class Simulation:
     def write_q_table(self):
         pathlib.Path('config').mkdir(parents=True, exist_ok=True)
         if type(self.std) is list:
-            q_filename = 'config/q_table_{}_{}_{}_{}'.format(int(self.std[0] * 100), int(self.std[1] * 100),
-                                                                        int(self.std[2] * 100), self.num_profiles)
+            q_filename = 'config/q_table' + self.format_base % self.format_tuple
         else:
             q_filename = 'config/q_table_{}_{}'.format(int(self.std * 100), self.num_profiles)
         with open(q_filename, 'wb') as q_file:
