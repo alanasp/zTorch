@@ -19,7 +19,7 @@ if __name__ == '__main__':
     logger = custom_logger.get_logger('Run_Simulations')
     logger.info('Starting simulations...')
 
-    num_time_steps = 5000
+    num_time_steps = 50000
     if len(sys.argv) > 1:
         num_time_steps = int(sys.argv[1])
 
@@ -83,7 +83,7 @@ if __name__ == '__main__':
 
     unified_time = np.linspace(0, num_time_steps, num=50)
 
-    measure_mon_data_consumption = True
+    measure_mon_data_consumption = False
     if measure_mon_data_consumption:
         num_runs = 5
         interp_groups_non_varied = np.zeros(unified_time.shape)

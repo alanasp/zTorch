@@ -24,7 +24,7 @@ base_vnf_profiles = {
 
 default_params = {
     'surv_epoch': 500,
-    'min_surv_delta': 1,
+    'min_surv_delta': 10,
     'min_surv_epoch': 500,
     'mon_periods': [2, 5, 10, 20, 50],
     'default_mon_period_id': 2,
@@ -450,7 +450,7 @@ class Simulation:
         # ensure reward function is able to deal with 0 deviations
         if num_deviations == 0:
             num_deviations = 1
-        return surv_epoch_length/(num_deviations**beta)
+        return surv_epoch_length**2/(num_deviations**beta)
 
     def update_q_table(self, state, action, next_state, surv_epoch_length, learning_rate=0.5, discount_rate=0.9):
         num_deviations = state

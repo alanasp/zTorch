@@ -47,7 +47,7 @@ for data_name in data_names:
             m = 0
             for i in range(len(y)):
                 val = y[i]
-                if m < 100:
+                if m < 200:
                     rolling_avg = (rolling_avg * m + val) / (m + 1)
                     m += 1
                 else:
@@ -83,14 +83,17 @@ plot_settings_by_sims = {
         'get_label': lambda sim: 'VNFs (I) = {}'.format(sim[1])
     },
     1: {
-        'sim_ids': [3, 1, 4, 5],
+        'sim_ids': [3, 4, 1, 5],
         'get_label': lambda sim: 'σ = {}'.format(sim[0]/100)
     }
 }
 
-for group_id in plot_settings_by_sims:
+rows = [1]
+row = 0
+
+for group_id in rows:
     for i in range(len(data_names)):
-        plt.subplot(len(plot_settings_by_sims), len(data_names), group_id*len(data_names) + i+1)
+        plt.subplot(len(rows), len(data_names), row*len(data_names) + i+1)
         data_name = data_names[i]
         lines = list()
         for i in plot_settings_by_sims[group_id]['sim_ids']:
@@ -113,6 +116,6 @@ for group_id in plot_settings_by_sims:
             axes.set_ylim(settings['ylim'])
         axes.yaxis.set_major_locator(MaxNLocator(integer=True))
         plt.legend(handles=lines)
-
+    row += 1
 
 plt.show()
