@@ -5,10 +5,10 @@ from mpl_toolkits.mplot3d import Axes3D
 
 plt_color_codes = 'bgrcmykw'
 
-results_folder = 'results/'
+results_folder = 'saved_exp_data/'
 
 # simulation identifiers for which we generate graphs
-simulations = [(50, 100), (10, 1000), (50, 1000), (6, 1000), (8, 1000), (12, 1000)]
+simulations = [(10, 750), (10, 1000), (10, 1250), (6, 1000), (8, 1000), (12, 1000)]
 
 data_names = ['num_aff_groups', 'mon_indices', 'surv_epoch_lengths']
 
