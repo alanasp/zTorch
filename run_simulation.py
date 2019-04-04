@@ -19,7 +19,7 @@ if __name__ == '__main__':
     logger = custom_logger.get_logger('Run_Simulations')
     logger.info('Starting simulations...')
 
-    num_time_steps = 20000
+    num_time_steps = 100000
     if len(sys.argv) > 1:
         num_time_steps = int(sys.argv[1])
 
@@ -124,7 +124,7 @@ if __name__ == '__main__':
         print('Avg consumption varied: {}'.format(consumption_varied))
         std = consumption_params['std']
         num_prof = consumption_params['num_init_profiles']
-        filename = 'results/6/varied_v_non_varied_{}_{}_{}_{}'.format(int(100*std[0]), int(100*std[1]),
+        filename = 'results/varied_v_non_varied_{}_{}_{}_{}'.format(int(100*std[0]), int(100*std[1]),
                                                                            int(100*std[2]), num_prof)
         with open(filename, 'w') as file:
             li_time = np.ndarray.tolist(unified_time)

@@ -5,7 +5,7 @@ from mpl_toolkits.mplot3d import Axes3D
 
 plt_color_codes = 'bgrcmykw'
 
-results_folder = 'saved_exp_data/'
+results_folder = 'results/'
 
 # simulation identifiers for which we generate graphs
 simulations = [(10, 750), (10, 1000), (10, 1250), (6, 1000), (8, 1000), (12, 1000)]
@@ -46,7 +46,7 @@ for data_name in data_names:
             m = 0
             for i in range(len(y)):
                 val = y[i]
-                if m < 200:
+                if m < 100:
                     rolling_avg = (rolling_avg * m + val) / (m + 1)
                     m += 1
                 else:

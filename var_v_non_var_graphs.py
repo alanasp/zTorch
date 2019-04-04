@@ -8,7 +8,7 @@ plt_color_codes = 'bgrcmykw'
 std1 = [0.01, 0.1, 0.3]
 num_prof1 = 1000
 
-filename = 'saved_exp_data/varied_v_non_varied_{}_{}_{}_{}'.format(int(100*std1[0]), int(100*std1[1]),
+filename = 'results/varied_v_non_varied_{}_{}_{}_{}'.format(int(100*std1[0]), int(100*std1[1]),
                                                                    int(100*std1[2]), num_prof1)
 
 
@@ -24,7 +24,7 @@ with open(filename, 'r') as file:
 std2 = [0.01]*80 + [0.1]*80 + [0.3]*80
 num_prof2 = 1000
 
-filename = 'results/6/varied_v_non_varied_{}_{}_{}_{}'.format(int(100*std2[0]), int(100*std2[1]),
+filename = 'results/varied_v_non_varied_{}_{}_{}_{}'.format(int(100*std2[0]), int(100*std2[1]),
                                                               int(100*std2[2]), num_prof2)
 
 

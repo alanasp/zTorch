@@ -72,7 +72,7 @@ class Simulation:
 
         if results_dir is True:
             # create results directory
-            results_dir = 'results/6/'
+            results_dir = 'results/'
             pathlib.Path(results_dir).mkdir(parents=True, exist_ok=True)
         self.results_dir = results_dir
 
