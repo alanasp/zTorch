@@ -5,11 +5,11 @@ from mpl_toolkits.mplot3d import Axes3D
 
 plt_color_codes = 'bgrcmykw'
 
-results_folder = 'results/4/'
+results_folder = 'results/'
 
 # simulation identifiers for which we generate graphs
 #simulations = [(50, 100), (10, 1000), (50, 1000), (6, 1000), (8, 1000), (12, 1000)]
-simulations = [(10, 1000), (10, 1000), (10, 1000), (6, 1000), (8, 1000), (12, 1000)]
+simulations = [(10, 750), (10, 1000), (10, 1250), (6, 1000), (8, 1000), (12, 1000)]
 
 data_names = ['num_aff_groups', 'mon_indices', 'surv_epoch_lengths']
 
@@ -88,7 +88,7 @@ plot_settings_by_sims = {
     }
 }
 
-rows = [1]
+rows = [0, 1]
 row = 0
 
 for group_id in rows:
@@ -109,9 +109,9 @@ for group_id in rows:
         settings = plot_settings_by_data[data_name]
         axes = plt.gca()
         if 'xlabel' in settings:
-            plt.xlabel(settings['xlabel'])
+            plt.xlabel(settings['xlabel'], fontsize=15)
         if 'ylabel' in settings:
-            plt.ylabel(settings['ylabel'])
+            plt.ylabel(settings['ylabel'], fontsize=15)
         if 'ylim' in settings:
             axes.set_ylim(settings['ylim'])
         axes.yaxis.set_major_locator(MaxNLocator(integer=True))

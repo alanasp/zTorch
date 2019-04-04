@@ -65,7 +65,7 @@ class Simulation:
 
         if results_dir is True:
             # create results directory
-            results_dir = 'results/4/'
+            results_dir = 'results/'
             pathlib.Path(results_dir).mkdir(parents=True, exist_ok=True)
         self.results_dir = results_dir
 
@@ -160,7 +160,7 @@ class Simulation:
         self.centres_evolution = list()
 
         # Q-Learning table, to be filled during first run of simulation and then further updated
-        self.q_table = np.zeros((2, 3))
+        self.q_table = np.zeros((5, 3))
 
         # attempt loading trained q_table from file
         self.load_q_table()
@@ -375,7 +375,7 @@ class Simulation:
                                                              int(self.std[2] * 100), self.num_profiles)
         else:
             q_filename = 'config/q_table_{}_{}'.format(int(self.std * 100), self.num_profiles)
-        if False:#os.path.exists(q_filename):
+        if os.path.exists(q_filename):
             with open(q_filename, 'rb') as q_file:
                 self.q_table = np.reshape(np.fromstring(q_file.read()), self.q_table.shape)
         else:
@@ -396,8 +396,8 @@ class Simulation:
                                                              int(self.std[2] * 100), self.num_profiles)
         else:
             q_filename = 'config/q_table_{}_{}'.format(int(self.std * 100), self.num_profiles)
-        #with open(q_filename, 'wb') as q_file:
-        #    q_file.write(self.q_table.tostring())
+        with open(q_filename, 'wb') as q_file:
+            q_file.write(self.q_table.tostring())
 
     # runs enhanced k-means clustering algorithm
     def run_ekm(self, init_centres=None, points=None):

@@ -19,7 +19,7 @@ if __name__ == '__main__':
     logger = custom_logger.get_logger('Run_Simulations')
     logger.info('Starting simulations...')
 
-    num_time_steps = 50000
+    num_time_steps = 100000
     if len(sys.argv) > 1:
         num_time_steps = int(sys.argv[1])
 
@@ -29,13 +29,13 @@ if __name__ == '__main__':
 
     # (std, num_vnf_profiles, num_time_steps, output_file_prefix, input_file_prefix)
     params = [
-        #{
-        #    'std': 0.50,
-        #    'num_init_profiles': 100,
-        #    'steps': num_time_steps,
-        #    'input_file': not on_the_fly,
-        #    'on_the_fly': on_the_fly
-        #},
+        {
+            'std': 0.10,
+            'num_init_profiles': 750,
+            'steps': num_time_steps,
+            'input_file': not on_the_fly,
+            'on_the_fly': on_the_fly
+        },
         {
             'std': 0.10,
             'num_init_profiles': 1000,
@@ -43,34 +43,34 @@ if __name__ == '__main__':
             'input_file': not on_the_fly,
             'on_the_fly': on_the_fly
         },
+        {
+            'std': 0.10,
+            'num_init_profiles': 1250,
+            'steps': num_time_steps,
+            'input_file': not on_the_fly,
+            'on_the_fly': on_the_fly
+        },
         #{
-        #    'std': 0.50,
+        #    'std': 0.06,
         #    'num_init_profiles': 1000,
         #    'steps': num_time_steps,
         #    'input_file': not on_the_fly,
         #    'on_the_fly': on_the_fly
         #},
-        {
-            'std': 0.06,
-            'num_init_profiles': 1000,
-            'steps': num_time_steps,
-            'input_file': not on_the_fly,
-            'on_the_fly': on_the_fly
-        },
-        {
-            'std': 0.08,
-            'num_init_profiles': 1000,
-            'steps': num_time_steps,
-            'input_file': not on_the_fly,
-            'on_the_fly': on_the_fly
-        },
-        {
-            'std': 0.12,
-            'num_init_profiles': 1000,
-            'steps': num_time_steps,
-            'input_file': not on_the_fly,
-            'on_the_fly': on_the_fly
-        },
+        #{
+        #    'std': 0.08,
+        #    'num_init_profiles': 1000,
+        #    'steps': num_time_steps,
+        #    'input_file': not on_the_fly,
+        #    'on_the_fly': on_the_fly
+        #},
+        #{
+        #    'std': 0.12,
+        #    'num_init_profiles': 1000,
+        #    'steps': num_time_steps,
+        #    'input_file': not on_the_fly,
+        #    'on_the_fly': on_the_fly
+        #},
     ]
 
     consumption_params = {
